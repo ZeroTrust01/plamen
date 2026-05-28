@@ -147,7 +147,7 @@ Note: `plamen rag` runs all 4 indexers automatically. Manual CLI usage is for de
 
 ## MCP Tools
 
-The server exposes these tools to Claude Code agents:
+The server exposes these tools to Codex agents:
 
 | Tool | Description |
 |------|-------------|

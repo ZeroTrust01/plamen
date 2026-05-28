@@ -28,7 +28,7 @@ Then run the toolchain probe:
 export PATH="$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$HOME/.cargo/bin:$HOME/.aptoscli/bin:$HOME/.local/bin:$HOME/go/bin:$PATH" && \
 echo "Toolchain:" && \
 echo -n "  Required: " && \
-(command -v claude >/dev/null 2>&1 && echo -n "claude " || echo -n "MISSING:claude ") && \
+(command -v codex >/dev/null 2>&1 && echo -n "codex " || echo -n "MISSING:codex ") && \
 (command -v python >/dev/null 2>&1 && echo -n "python " || (command -v python3 >/dev/null 2>&1 && echo -n "python " || echo -n "MISSING:python ")) && \
 (command -v git >/dev/null 2>&1 && echo -n "git" || echo -n "MISSING:git") && echo "" && \
 echo -n "  EVM:      " && \
@@ -191,7 +191,7 @@ config = {
     "mode": MODE,           # "light" | "core" | "thorough"
     "pipeline": "sc",
     "language": LANGUAGE,   # "evm" | "solana" | "soroban" | "aptos" | "sui"
-    "cli_backend": "claude",
+    "cli_backend": "codex",
     "docs_path": DOCS_PATH or "",
     "scope_file": SCOPE_FILE or "",
     "scope_notes": SCOPE_NOTES or "",
@@ -213,28 +213,28 @@ Monitor progress:  tail -f "{PROJECT_PATH}/.scratchpad/_plamen.log"
 Check checkpoint:  cat "{PROJECT_PATH}/.scratchpad/_v2_checkpoint.json"
 
 If the audit is interrupted (usage cap, crash, Ctrl+C), resume with:
-  python3 ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
+  python3 ~/.codex/plamen/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
 
 Preview remaining phases:
-  python3 ~/.claude/scripts/plamen_driver.py --dry-run "{PROJECT_PATH}/.scratchpad/config.json"
+  python3 ~/.codex/plamen/scripts/plamen_driver.py --dry-run "{PROJECT_PATH}/.scratchpad/config.json"
 
 Clean restart:
-  python3 ~/.claude/scripts/plamen_driver.py --fresh "{PROJECT_PATH}/.scratchpad/config.json"
+  python3 ~/.codex/plamen/scripts/plamen_driver.py --fresh "{PROJECT_PATH}/.scratchpad/config.json"
 ```
 
-Then launch the driver **in the background** so the Claude Code session remains interactive. Use a single Bash tool call with `run_in_background: true`:
+Then launch the driver **in the background** so the Codex CLI session remains interactive. Use a single Bash tool call with `run_in_background: true`:
 
 ```bash
-python3 ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
+python3 ~/.codex/plamen/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
 ```
 
-Set `run_in_background: true` on the Bash tool call. Do NOT use `&` or `nohup` — Claude Code's `run_in_background` parameter handles this natively and will notify when the process completes.
+Set `run_in_background: true` on the Bash tool call. Do NOT use `&` or `nohup` — Codex CLI's `run_in_background` parameter handles this natively and will notify when the process completes.
 
 **HARD RULE**: After launching the background Bash call, do NOT launch any additional Bash commands, background processes, or agents related to the audit. The driver is the sole owner of the pipeline. Tell the user the audit is running and they can continue using this session.
 
 ## Step 4: Handle Driver Completion
 
-The driver runs in the background. When it completes, Claude Code will notify you. At that point, check the exit code:
+The driver runs in the background. When it completes, Codex CLI will notify you. At that point, check the exit code:
 
 - **Exit 0**: Pipeline completed. Tell the user: `Report is at {PROJECT_PATH}/AUDIT_REPORT.md`
 - **Exit 2 (rate limit / usage exhausted)**: The driver saved a checkpoint. Tell the user:
@@ -243,7 +243,7 @@ The driver runs in the background. When it completes, Claude Code will notify yo
 Pipeline paused — rate limit or usage cap reached.
 
 Resume when quota refreshes:
-  python3 ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
+  python3 ~/.codex/plamen/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
 
 The driver auto-resumes from the last successful phase. No data is lost.
 ```
@@ -255,5 +255,5 @@ Pipeline stopped with errors. Check violations:
   cat "{PROJECT_PATH}/.scratchpad/violations.md"
 
 Resume (re-attempts failed phases):
-  python3 ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
+  python3 ~/.codex/plamen/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
 ```

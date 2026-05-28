@@ -48,7 +48,7 @@ _CAPTURED_OUTPUT = (
 )
 
 # Rich panels and carriage-return spinners render badly in captured shell
-# panes such as Claude Code's Shell details view. Default to plain, line-safe
+# panes. Default to plain, line-safe
 # output whenever stderr is not an interactive terminal. Operators can still
 # force Rich in a real terminal with PLAMEN_FORCE_RICH=1.
 RICH_AVAILABLE = RICH_AVAILABLE and (
@@ -407,7 +407,7 @@ def print_halt_diagnostics(phase_name: str, scratchpad: str,
               file=sys.stderr)
         print(f"Prompt snapshots: {', '.join(str(p) for p in prompts)}",
               file=sys.stderr)
-        print(f"\nResume: python ~/.claude/scripts/plamen_driver.py \"{config_path}\"",
+        print(f"\nResume: python ~/.codex/plamen/scripts/plamen_driver.py \"{config_path}\"",
               file=sys.stderr)
         return
 
@@ -421,7 +421,7 @@ def print_halt_diagnostics(phase_name: str, scratchpad: str,
         size_kb = p.stat().st_size / 1024 if p.exists() else 0
         table.add_row("Prompt", f"[white]{p.name}[/] [dim]({size_kb:.0f}KB)[/]")
     table.add_row("", "")
-    table.add_row("Resume", f"[bold]python ~/.claude/scripts/plamen_driver.py \"{config_path}\"[/]")
+    table.add_row("Resume", f"[bold]python ~/.codex/plamen/scripts/plamen_driver.py \"{config_path}\"[/]")
 
     console.print(Panel(table, title="[dim]Diagnostics[/]", border_style="dim",
                         width=min(console.width, 72)))
@@ -495,7 +495,7 @@ def print_failure_diagnosis(phase_name: str, scratchpad: str,
         f"- Pipeline: {config.get('pipeline', '?')}\n"
         f"- Mode: {config.get('mode', '?')}\n"
         f"- Language: {config.get('language', '?')}\n"
-        f"- Backend: {config.get('cli_backend', 'claude')}\n"
+        f"- Backend: {config.get('cli_backend', 'codex')}\n"
         f"- Scratchpad: {scratchpad}\n\n"
     )
     if is_codex and phase_name == "depth":
@@ -555,18 +555,12 @@ def print_failure_diagnosis(phase_name: str, scratchpad: str,
         f"developer fixing the pipeline code."
     )
 
-    backend = config.get("cli_backend", "claude")
+    backend = "codex"
+    codex_bin = _find_codex_bin()
+    if not codex_bin:
+        return
 
-    if backend == "codex":
-        codex_bin = _find_codex_bin()
-        if not codex_bin:
-            return
-    else:
-        claude_bin = _find_claude_bin()
-        if not claude_bin:
-            return
-
-    _label = "codex" if backend == "codex" else "sonnet"
+    _label = "codex"
     if RICH_AVAILABLE:
         console.print(f"\n    [dim]Running failure diagnosis ({_label})...[/]")
     else:
@@ -582,40 +576,22 @@ def print_failure_diagnosis(phase_name: str, scratchpad: str,
             console.print(f"    [dim red]Diagnosis skipped: can't write prompt ({e})[/]")
         return
 
-    if backend == "codex":
-        from plamen_types import _CODEX_MODEL_MAP
-        diag_model = _CODEX_MODEL_MAP.get("sonnet", "gpt-5.4-mini")
-        cmd = [
-            codex_bin, "exec",
-            "--model", diag_model,
-            "--json",
-            "--ephemeral",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--skip-git-repo-check",
-            "--ignore-user-config",
-            "--ignore-rules",
-            "-",
-        ]
-    else:
-        cmd = [
-            claude_bin, "-p", "--model", "sonnet",
-            "--output-format", "text",
-            "--no-session-persistence",
-            "--dangerously-skip-permissions",
-            "--disallowedTools", "mcp__*",
-        ]
-        # Apply plugin/hook/MCP isolation via --settings overlay
-        isolation_path = sp / "_subprocess_isolation.json"
-        if isolation_path.exists():
-            iso = isolation_path.as_posix()
-            cmd.extend([
-                "--settings", iso,
-                "--strict-mcp-config", "--mcp-config", iso,
-            ])
+    from plamen_types import _CODEX_MODEL_MAP
+    diag_model = _CODEX_MODEL_MAP.get("sonnet", "gpt-5.4-mini")
+    cmd = [
+        codex_bin, "exec",
+        "--model", diag_model,
+        "--json",
+        "--ephemeral",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--skip-git-repo-check",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "-",
+    ]
 
     subprocess_env = {
         **os.environ,
-        "ANTHROPIC_DISABLE_AUTOUPDATE": "1",
     }
     popen_kwargs: dict = {}
     if sys.platform == "win32":
@@ -629,7 +605,7 @@ def print_failure_diagnosis(phase_name: str, scratchpad: str,
                 cmd,
                 stdin=stdin_file,
                 capture_output=True,
-                timeout=180 if backend == "codex" else 120,
+                timeout=180,
                 env=subprocess_env,
                 **popen_kwargs,
             )
@@ -692,7 +668,7 @@ def print_failure_diagnosis(phase_name: str, scratchpad: str,
 
 def print_rate_limit_pause(config_path: str):
     """Print rate limit pause message with resume instructions."""
-    resume_cmd = f"python ~/.claude/scripts/plamen_driver.py {config_path}"
+    resume_cmd = f"python ~/.codex/plamen/scripts/plamen_driver.py {config_path}"
 
     if not RICH_AVAILABLE:
         print("\n" + "=" * 60, file=sys.stderr)
@@ -1039,7 +1015,7 @@ def print_stopping():
 
 def print_stopped(phase_name: str, config_path: str):
     """Print clean exit after graceful stop."""
-    resume_cmd = f"python ~/.claude/scripts/plamen_driver.py \"{config_path}\""
+    resume_cmd = f"python ~/.codex/plamen/scripts/plamen_driver.py \"{config_path}\""
     if not RICH_AVAILABLE:
         print(
             f"\n  Pipeline stopped during: {phase_name}\n"
@@ -1273,16 +1249,6 @@ class PauseToggle:
 
 
 pause_toggle = PauseToggle()
-
-
-def _find_claude_bin() -> Optional[str]:
-    """Find the claude binary path."""
-    import shutil
-    for name in ("claude", "claude.cmd", "claude.exe"):
-        path = shutil.which(name)
-        if path:
-            return path
-    return None
 
 
 def _find_codex_bin() -> Optional[str]:

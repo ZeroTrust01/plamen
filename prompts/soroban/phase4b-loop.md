@@ -12,7 +12,7 @@
 > Iterations 2-3 are targeted, autonomous, and anti-dilution protected.
 > **The orchestrator runs the ENTIRE loop without user intervention.**
 > Timeout-aware split-and-retry, severity-weighted budget, dynamic cap, loop dynamics detection, post-verification error trace feedback.
-> **Reference**: `~/.claude/rules/phase4-confidence-scoring.md` for scoring model and anti-dilution rules.
+> **Reference**: `~/.codex/plamen/rules/phase4-confidence-scoring.md` for scoring model and anti-dilution rules.
 
 ## Depth Agent Domain Mapping - Soroban
 
@@ -48,7 +48,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
   // â•â•â• PHASE 4a.5: Semantic Invariant Pre-Computation â•â•â•
   // Sonnet agent enumerates write sites, semantic invariants, conditional/sync/accumulation annotations
   // Produces {SCRATCHPAD}/semantic_invariants.md - consumed by depth-state-trace and Validation Sweep
-  // See CLAUDE.md Phase 4a.5 for full prompt template
+  // See AGENTS.md Phase 4a.5 for full prompt template
   spawn semantic_invariant_agent(model="sonnet", SCRATCHPAD, state_variables, function_list, source_files)
   await semantic_invariant_agent  // MUST complete before depth agents spawn (they consume its output)
 
@@ -57,7 +57,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
   // Detection: recon sets CARGO_FUZZ_AVAILABLE in build_status.md
   //   (checked via: `rustup toolchain list | grep nightly`)
   // If CARGO_FUZZ_AVAILABLE == true:
-  //   Read template: ~/.claude/prompts/soroban/phase4b-invariant-fuzz.md
+  //   Read template: ~/.codex/plamen/prompts/soroban/phase4b-invariant-fuzz.md
   //   Spawn fuzz agent, 5-min timeout built into template
   //   Uses: `cargo +nightly fuzz run fuzz_target_1 -- -max_total_time=300`
   // If CARGO_FUZZ_AVAILABLE == false:
@@ -78,7 +78,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
   // If missing â†’ add it before proceeding. This gate prevents orchestrator omission.
   // Spawn ALL 8 standard agents + niche agents in a SINGLE message as parallel Task calls
   // (4 depth + 3 blind spot scanners + 1 validation sweep + N niche agents)
-  // For each niche agent: read definition from ~/.claude/agents/skills/niche/{name}/SKILL.md, spawn as general-purpose
+  // For each niche agent: read definition from ~/.codex/plamen/agents/skills/niche/{name}/SKILL.md, spawn as general-purpose
   // Niche agents write to {SCRATCHPAD}/niche_{name}_findings.md
   //
   // â•â•â• MODEL DIVERSITY â•â•â•
@@ -213,7 +213,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
         spawn niche_gap_filler(model="sonnet", prompt="
           You are a targeted gap-filler for {agent_name}. Analyze ONLY these entities
           that the original agent missed: {missing_entities}.
-          Apply the same methodology from ~/.claude/agents/skills/niche/{agent_name}/SKILL.md.
+          Apply the same methodology from ~/.codex/plamen/agents/skills/niche/{agent_name}/SKILL.md.
           Write to {SCRATCHPAD}/niche_{agent_name}_gaps.md
         ")
         depth_spawns_used += 1
@@ -258,7 +258,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
 
       Write to {SCRATCHPAD}/perturbation_findings.md
       Use finding IDs [PERT-1], [PERT-2]... Max 8 new findings.
-      Use standard finding format from ~/.claude/rules/finding-output-format.md.
+      Use standard finding format from ~/.codex/plamen/rules/finding-output-format.md.
 
       SCOPE: Write ONLY to your assigned output file. Return your findings and stop.
       Return: 'DONE: {P} perturbations tested, {N} new findings'
@@ -278,10 +278,10 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
       For each depth agent, verify that it executed each step of its assigned skill.
 
       Depth Agent â†’ Skill Mapping:
-        depth-token-flow â†’ ~/.claude/agents/skills/soroban/token-flow-tracing/SKILL.md
-        depth-state-trace â†’ ~/.claude/agents/skills/soroban/storage-lifecycle/SKILL.md
-        depth-edge-case â†’ ~/.claude/agents/skills/soroban/overflow-safety/SKILL.md
-        depth-external â†’ ~/.claude/agents/skills/soroban/external-precondition-audit/SKILL.md
+        depth-token-flow â†’ ~/.codex/plamen/agents/skills/soroban/token-flow-tracing/SKILL.md
+        depth-state-trace â†’ ~/.codex/plamen/agents/skills/soroban/storage-lifecycle/SKILL.md
+        depth-edge-case â†’ ~/.codex/plamen/agents/skills/soroban/overflow-safety/SKILL.md
+        depth-external â†’ ~/.codex/plamen/agents/skills/soroban/external-precondition-audit/SKILL.md
 
       For EACH depth agent:
       1. Read the skill file. Extract each numbered step, section, or CHECK.

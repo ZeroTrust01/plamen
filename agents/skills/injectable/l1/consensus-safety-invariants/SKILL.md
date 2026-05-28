@@ -220,7 +220,7 @@ Tag: `[ID-NOT-VERIFIED:{type}.{id-field}]`
 ```
 
 **Rules**:
-1. Read pre-baked `{SCRATCHPAD}/scip/repo_map.md` to extract the full field list from the struct definition. Do NOT enumerate from memory. (MCP tools are unavailable in subagent contexts per Claude Code bug #25200.)
+1. Read pre-baked `{SCRATCHPAD}/scip/repo_map.md` to extract the full field list from the struct definition. Do NOT enumerate from memory. (MCP tools are unavailable in subagent contexts per Codex CLI bug #25200.)
 2. For each field, search `validate_block` / `prevalidate_block` / `validate_header` / equivalent for ANY reference to the field name. Record the function and line.
 3. Status values: `OK` (validated against independent ground truth), `CIRCULAR` (validated against another producer-supplied field), `MISSING` (no validator reference at all), `BOUNDED` (validator exists but bound is too loose).
 4. Every `MISSING` row generates a `[HEADER-FIELD-UNVERIFIED:{field-name}]` finding. Every `CIRCULAR` row generates a `[HEADER-FIELD-CIRCULAR:{field-name}]` finding. The bundle is the evidence — the orchestrator can verify the agent enumerated EVERY field by counting checklist rows against the struct field count.

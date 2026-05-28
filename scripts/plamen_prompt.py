@@ -1036,7 +1036,7 @@ def scale_timeout(
 
     v2.6.1-codex: backend="codex" applies 3x multiplier (capped at
     effective_ceiling). Codex runs multi-agent phases sequentially in a
-    single model turn — work that Claude Code parallelises via Task tool
+    single model turn — work that Codex CLI parallelises via Task tool
     takes ~3x wall-clock on Codex.
     """
     try:
@@ -1393,7 +1393,7 @@ _LEGITIMATE_SUBPRODUCER_PATTERNS = {
     # --- Reference files: rules/, agents/, prompts/ (read by agents, never
     #     written to scratchpad). Adding these silences consistency-checker
     #     noise from prose references in prompts. They cannot drift because
-    #     the filesystem path is fixed (~/.claude/...) and agents only READ,
+    #     the filesystem path is fixed (~/.codex/plamen/...) and agents only READ,
     #     never WRITE, these names. ---
     # Top-level
     "CLAUDE.md", "README.md", "MEMORY.md", "SETUP.md", "CHANGELOG.md",
@@ -2535,7 +2535,7 @@ to expensive verification.
         phase_cost_directive = """
 ## SEMANTIC DEDUP OVERRIDE
 
-Run ONLY Step 4e. Read `~/.claude/prompts/shared/v2/phase4e-semantic-dedup.md`
+Run ONLY Step 4e. Read `~/.codex/plamen/prompts/shared/v2/phase4e-semantic-dedup.md`
 for the full methodology. Execute it as a single agent (yourself) -- do NOT
 spawn subagents.
 
@@ -2564,7 +2564,7 @@ Stop after writing both files. Do not proceed to verification.
         phase_cost_directive = """
 ## SEMANTIC DEDUP OVERRIDE (SC)
 
-Run ONLY Step 4e. Read `~/.claude/prompts/shared/v2/phase4e-semantic-dedup.md`
+Run ONLY Step 4e. Read `~/.codex/plamen/prompts/shared/v2/phase4e-semantic-dedup.md`
 for the full methodology. Execute it as a single agent (yourself) -- do NOT
 spawn subagents.
 
@@ -2665,7 +2665,7 @@ Mandatory rules:
    missing, write it before returning. Never return partial completion such as
    1/2, 7/12, or 9/12 verifier files.
 10. Follow the PoC Execution Protocol and Assertion Retry Protocol from
-   `~/.claude/rules/phase5-poc-execution.md`.
+   `~/.codex/plamen/rules/phase5-poc-execution.md`.
 """.format(manifest=shard_manifest, shard_checklist=shard_checklist)
     elif config.get("pipeline") == "l1" and phase.name in L1_VERIFY_PHASE_NAMES:
         shard_manifest = L1_VERIFY_SHARD_MANIFESTS[phase.name]
@@ -2843,7 +2843,7 @@ When spawning Task subagents for the 3 L1 depth roles
 This is a late trigger generated AFTER `template_recommendations.md`; therefore
 do not rely only on `template_recommendations.md` for niche-agent selection.
 You MUST spawn `SEMANTIC_GAP_INVESTIGATOR` from
-`~/.claude/agents/skills/niche/semantic-gap-investigator/SKILL.md` and it MUST
+`~/.codex/plamen/agents/skills/niche/semantic-gap-investigator/SKILL.md` and it MUST
 write `{config['scratchpad']}/niche_semantic_gap_findings.md`.
 
 The semantic-gap agent must investigate every SYNC_GAP, ACCUMULATION_EXPOSURE,
@@ -3173,7 +3173,7 @@ Both naming conventions provided to match V1 prompt placeholders:
 {subsystem_scope_directive}
 ## HARD SCOPE DIRECTIVE (OVERRIDES V1 PROMPT STEP 0)
 
-You are running INSIDE a phase-scoped claude -p subprocess dispatched by
+You are running INSIDE a phase-scoped codex exec subprocess dispatched by
 `plamen_driver.py`. The V1 orchestrator prompt below describes the full
 pipeline from Step 0 onward. You MUST NOT execute it linearly.
 
@@ -3194,7 +3194,7 @@ Mandatory rules:
    proceed to the next phase.
 
 5. **Do NOT initialize any V1 watchdog / phase_gate / stop-hook.** If the
-   V1 prompt below says `python ~/.claude/hooks/phase_gate.py --init ...`
+   V1 prompt below says `python ~/.codex/plamen/hooks/phase_gate.py --init ...`
    or references `watchdog_state.json`, SKIP that step. The V2 driver has
    its own Python gate that runs outside your process. V1 watchdogs
    installed inside your subprocess will block later phases of the V2
@@ -3240,7 +3240,7 @@ agents completed previously, you spawn only the missing 3.
 
 When an MCP tool call returns a timeout or fails, record `[MCP: TIMEOUT]`
 and switch to fallback (code analysis, grep, WebSearch). Do NOT retry
-the same MCP call. Claude Code's MCP timeout is 300s.
+the same MCP call. Codex CLI's MCP timeout is 300s.
 
 ===================================================================
 {begin_prompt_label} (`{begin_prompt_source}`):

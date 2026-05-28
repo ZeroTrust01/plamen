@@ -46,12 +46,12 @@ more than once. Partial recon is better than no recon.
 **MCP TIMEOUT POLICY**: When an MCP tool call returns a timeout error or fails,
 do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls
 to that provider " switch immediately to fallback (code analysis, grep, WebSearch).
-Claude Code's tool timeout is set to 300s (5 min). You cannot cancel a pending
+Codex CLI's tool timeout is set to 300s (5 min). You cannot cancel a pending
 call " but you control what happens after the error returns.
 
 ## TURN BUDGET POLICY - DRAFT-FIRST, ENRICH-LATER (MANDATORY)
 
-You run inside `claude -p` with a hard **--max-turns cap** (currently 80
+You run inside `codex exec` with a hard **--max-turns cap** (currently 80
 for L1 recon). A single Read/Bash/Grep/Write call costs ONE turn. Large
 node-client codebases (50k+ LOC, 20+ crates/modules) can easily consume
 50+ turns on exploration alone. If you hit the cap without writing the
@@ -138,7 +138,7 @@ if [[ "$LANG" == *rust* ]]; then
 fi
 
 # Opengrep baseline scan
-opengrep --config ~/.claude/agents/skills/injectable/l1/_opengrep-rules/ \
+opengrep --config ~/.codex/plamen/agents/skills/injectable/l1/_opengrep-rules/ \
   --json {path} > {scratchpad}/opengrep_hits.json
 
 # Record primitive status

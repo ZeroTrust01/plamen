@@ -31,10 +31,12 @@ ASSIGNMENT = {
     # ═══════════════════════════════════════════════════════════════
     # Layer 0: plamen_types.py (ALREADY EXTRACTED — skip these)
     # ═══════════════════════════════════════════════════════════════
-    "_resolve_claude_bin": "types",
-    "CLAUDE_BIN": "types",
     "PLAMEN_OPUS_MODEL": "types",
-    "_resolve_model_alias": "types",
+    "_CODEX_MODEL_MAP": "types",
+    "_CODEX_FALLBACK_MODEL_ORDER": "types",
+    "_resolve_codex_model_alias": "types",
+    "_resolve_codex_bin": "types",
+    "CODEX_BIN": "types",
     "EXIT_SUCCESS": "types",
     "EXIT_ERROR": "types",
     "EXIT_RATE_LIMITED": "types",

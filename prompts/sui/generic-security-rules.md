@@ -490,10 +490,10 @@ Verify hot potato correctness:
 >
 > | Rule | Skill File | Trigger |
 > |------|-----------|---------|
-> | MR1 | `~/.claude/agents/skills/sui/ability-analysis/SKILL.md` | Always |
-> | MR2 | `~/.claude/agents/skills/sui/bit-shift-safety/SKILL.md` | Always |
-> | MR3 | `~/.claude/agents/skills/sui/type-safety/SKILL.md` | Always |
-> | MR4 | `~/.claude/agents/skills/sui/dependency-audit/SKILL.md` | EXTERNAL_LIB flag |
+> | MR1 | `~/.codex/plamen/agents/skills/sui/ability-analysis/SKILL.md` | Always |
+> | MR2 | `~/.codex/plamen/agents/skills/sui/bit-shift-safety/SKILL.md` | Always |
+> | MR3 | `~/.codex/plamen/agents/skills/sui/type-safety/SKILL.md` | Always |
+> | MR4 | `~/.codex/plamen/agents/skills/sui/dependency-audit/SKILL.md` | EXTERNAL_LIB flag |
 >
 > If you are a breadth or depth agent: you already have these skills loaded. Do NOT request them again. Apply the skill methodology directly.
 

@@ -31,7 +31,7 @@ proposal to either **AGREE** with the current severity or **DISAGREE**
 
 > **Mode gate**: Thorough mode only. Skip in Light and Core.
 > **Trigger**: After ALL standard Phase 5 verifiers complete.
-> **Reference matrix**: `~/.claude/docs/l1-mode/severity-matrix.md` (canonical).
+> **Reference matrix**: `~/.codex/plamen/docs/l1-mode/severity-matrix.md` (canonical).
 >   The matrix embedded below is derived from that file plus common L1
 >   audit practice — use it directly if the file is unavailable.
 
@@ -67,7 +67,7 @@ Read (adjust paths to the actual scratchpad):
 
 ## L1 SEVERITY MATRIX (apply this — NOT the SC matrix)
 
-This matrix is adapted from `~/.claude/docs/l1-mode/severity-matrix.md`.
+This matrix is adapted from `~/.codex/plamen/docs/l1-mode/severity-matrix.md`.
 Use it directly for severity reasoning.
 
 | Impact \ Likelihood | High (trivially reachable; < ~5 tx or messages; no special privileges) | Medium (bounded privileges; specific network conditions; known adversary profile) | Low (complex coordinated attack; rare conditions; sustained adversarial position) |

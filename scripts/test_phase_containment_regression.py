@@ -327,7 +327,7 @@ def test_PROMPT_sc_depth_enforces_language_template_and_graph_contract(tmp_path:
     prompt = D.build_phase_prompt(v1, phase, config)
 
     required = [
-        "~/.claude/prompts/evm/phase4b-depth-templates.md",
+        "~/.codex/plamen/prompts/evm/phase4b-depth-templates.md",
         "Language-Specific Depth Template Binding",
         "graph-artifact section verbatim",
         "caller_map.md",
@@ -968,13 +968,13 @@ def test_POLICY_validator_rejects_foreign_phase_writes_even_when_own_gate_passes
     check("POLICY.containment_failure_blocks_phase_completion", True, detail)
 
 
-def test_BOUNDARY_fake_claude_foreign_write_is_hard_failure_signal(tmp_path: Path):
+def test_BOUNDARY_fake_codex_foreign_write_is_hard_failure_signal(tmp_path: Path):
     project = tmp_path / "project"
     scratchpad = project / ".scratchpad"
     project.mkdir()
     scratchpad.mkdir()
 
-    fake_py = tmp_path / "fake_claude.py"
+    fake_py = tmp_path / "fake_codex.py"
     fake_py.write_text(
         """
 from pathlib import Path
@@ -987,7 +987,7 @@ prompt = sys.stdin.read()
 match = re.search(r"running the \\*\\*(.*?)\\*\\* phase", prompt)
 phase = match.group(1) if match else "unknown"
 scratch = Path(os.environ["PLAMEN_SCRATCHPAD"])
-body = "# fake claude artifact\\n\\n" + ("padding " * 40) + "\\n"
+body = "# fake codex artifact\\n\\n" + ("padding " * 40) + "\\n"
 if phase == "inventory_prepare":
     (scratch / "inventory_shard_plan.md").write_text(body, encoding="utf-8")
     (scratch / "semantic_invariants.md").write_text(body, encoding="utf-8")
@@ -995,19 +995,19 @@ print(json.dumps({"result": "x" * 700, "usage": {"input_tokens": 1, "output_toke
 """.lstrip(),
         encoding="utf-8",
     )
-    # On Windows we hand the driver a `.cmd` shim (D.CLAUDE_BIN is invoked
+    # On Windows we hand the driver a `.cmd` shim (D.CODEX_BIN is invoked
     # without shell=True; cmd.exe is the only interpreter that runs `.cmd`).
     # On POSIX we hand it an executable shell script — same indirection,
     # platform-native interpreter. A `.cmd` on Linux/macOS would hit
     # `PermissionError: [Errno 13]` because the kernel has no handler.
     if os.name == "nt":
-        fake_cmd = tmp_path / "fake_claude.cmd"
+        fake_cmd = tmp_path / "fake_codex.cmd"
         fake_cmd.write_text(
             f'@echo off\r\n"{sys.executable}" "{fake_py}" %*\r\n',
             encoding="utf-8",
         )
     else:
-        fake_cmd = tmp_path / "fake_claude.sh"
+        fake_cmd = tmp_path / "fake_codex.sh"
         fake_cmd.write_text(
             f'#!/bin/sh\nexec "{sys.executable}" "{fake_py}" "$@"\n',
             encoding="utf-8",
@@ -1017,12 +1017,15 @@ print(json.dumps({"result": "x" * 700, "usage": {"input_tokens": 1, "output_toke
     phase = next(p for p in D.L1_PHASES if p.name == "inventory_prepare")
     config = _config(project, scratchpad)
     before = D._snapshot_file_state(scratchpad, str(project))
-    old_bin = D.CLAUDE_BIN
-    D.CLAUDE_BIN = str(fake_cmd)
+    old_bin = D.CODEX_BIN
+    old_auth = D._codex_auth_available
+    D.CODEX_BIN = str(fake_cmd)
+    D._codex_auth_available = lambda: True
     try:
         rc = D.run_phase(phase, config, attempt=1)
     finally:
-        D.CLAUDE_BIN = old_bin
+        D.CODEX_BIN = old_bin
+        D._codex_auth_available = old_auth
 
     passed, missing = D._run_phase_validators(
         phase, config, scratchpad, D.L1_PHASES, rc, before
@@ -1036,7 +1039,7 @@ print(json.dumps({"result": "x" * 700, "usage": {"input_tokens": 1, "output_toke
     detail = f"rc={rc} passed={passed} missing={missing}"
     if not ok:
         print(
-            "  FAIL  BOUNDARY.fake_claude_containment_hard_failure"
+            "  FAIL  BOUNDARY.fake_codex_containment_hard_failure"
             f" :: {detail}"
         )
         raise AssertionError(
@@ -1044,7 +1047,7 @@ print(json.dumps({"result": "x" * 700, "usage": {"input_tokens": 1, "output_toke
             "surface foreign later-phase writes as a failed phase validation, "
             "not as a clean pass with quarantine-only side effects."
         )
-    check("BOUNDARY.fake_claude_containment_hard_failure", True, detail)
+    check("BOUNDARY.fake_codex_containment_hard_failure", True, detail)
 
 
 def test_CONTAINMENT_rogue_report_artifacts_detected_and_quarantined(tmp_path: Path):
@@ -1570,7 +1573,7 @@ TESTS_TMP = [
     test_CONTRACT_semantic_dedup_noop_writes_expected_outputs,
     test_CONTRACT_empty_verify_queue_skip_writes_canonical_queue,
     test_POLICY_validator_rejects_foreign_phase_writes_even_when_own_gate_passes,
-    test_BOUNDARY_fake_claude_foreign_write_is_hard_failure_signal,
+    test_BOUNDARY_fake_codex_foreign_write_is_hard_failure_signal,
     test_CONTAINMENT_rogue_report_artifacts_detected_and_quarantined,
     test_CONTAINMENT_depth_static_denylist_catches_unmanifested_downstream_files,
     test_CONTAINMENT_live_abort_on_depth_downstream_artifact,

@@ -1,164 +1,101 @@
 # Getting Started
 
-> **⚠️ Do NOT paste this file or setup.md into Claude Code / Codex CLI.** Follow these instructions in your terminal. Pasting into an AI coding assistant causes autonomous command execution including the optional RAG build (~6GB RAM).
+Start here after `plamen install`.
 
-> Just installed Plamen? This page tells you exactly what to do next — what's required, what's optional, and how to run your first audit.
-
-> **First thing to run:** `plamen doctor` — verifies install (Plamen home, CLIs, Python deps, symlinks, submodules, CLAUDE.md markers) in a few seconds, exits non-zero on hard failures. No audit run, no paid API calls. See [glossary.md](glossary.md) for terminology.
-
-## What did install do?
-
-`plamen install` (or `plamen setup`) set up:
-
-| Component | What it is | Status after install |
-|-----------|-----------|---------------------|
-| **Symlinks** | Links Plamen's agents, rules, commands, and prompts into `~/.claude/` (Claude Code) or `~/.codex/plamen/` (Codex CLI) | Done |
-| **Config** | Merged permissions, env vars, and MCP servers into `~/.claude/settings.json` (Claude Code) or `~/.codex/config.toml` (Codex CLI) | Done |
-| **Orchestrator rules** | Injected `~/.claude/CLAUDE.md` (Claude Code) or `~/.codex/AGENTS.md` (Codex CLI) — the orchestrator's top-level instructions | Done |
-| **Core Python deps** | `rich`, `InquirerPy` (wrapper UI) | Done |
-| **MCP server deps** | slither-mcp, solana-fender, farofino-mcp | Done |
-| **Chain toolchains** | Foundry, Solana CLI, Anchor, Aptos, Sui, etc. | Only if you selected them |
-| **RAG database** | Vulnerability knowledge base (PyTorch + embeddings) | **Not installed** — separate step |
-
-## What do I actually need?
-
-### Required for all audits
-
-These are installed automatically. If any are missing, `plamen` will tell you.
-
-- **Claude Code** (`claude` in PATH) or **Codex CLI** (`codex` in PATH)
-- **Python 3.11-3.12** (`python` / `python3`)
-- **Node.js 18+** (`npx`, `npm`)
-- **Git**
-
-### Required per chain (install only what you audit)
-
-You do **not** need all chain tools. Install only the ones for your target:
-
-| I'm auditing... | I need | Install command |
-|-----------------|--------|-----------------|
-| **EVM / Solidity** | Foundry (forge) | `plamen setup` → select EVM |
-| **Solana / Anchor** | Solana CLI + Anchor | `plamen setup` → select Solana |
-| **Aptos Move** | Aptos CLI | `plamen setup` → select Move |
-| **Sui Move** | Sui CLI | `plamen setup` → select Move |
-| **Soroban / Stellar** | Stellar CLI + Rust | `plamen setup` → select Soroban |
-| **L1 / Node Client** | Go or Rust + scip-go/rust-analyzer | `plamen setup` → select L1 |
-
-> **Slither** (EVM static analysis) and **Medusa** (EVM stateful fuzzing) are recommended but optional. The pipeline works without them — it just has less static analysis coverage.
-
-### Optional: RAG vulnerability database (~6GB RAM required)
-
-RAG gives the pipeline historical vulnerability pattern matching — it searches a local database of 4k+ past audit findings (from Solodit, DeFiHackLabs, Immunefi bug bounties, and Immunefi audit competitions). The pipeline works without it (falls back to web search), but RAG improves finding quality.
-
-> **Resource warning**: RAG build loads PyTorch + sentence-transformers + ChromaDB. Peak RAM: ~4-6GB. On machines with ≤8GB total RAM, close other applications first or skip this step entirely.
+## Verify Install
 
 ```bash
-# Build the RAG database (~10-20 min, CPU + RAM intensive)
-export SOLODIT_API_KEY=your_key_here    # free at solodit.cyfrin.io (recommended)
+plamen doctor
+```
+
+This checks the Plamen checkout, Codex CLI, Python dependencies, submodules,
+symlinks, `~/.codex/AGENTS.md`, and generated Codex config.
+
+## What Install Created
+
+| Component | Location |
+|-----------|----------|
+| Source checkout | `~/.plamen/` |
+| Codex methodology root | `~/.codex/plamen/` |
+| Codex orchestrator rules | `~/.codex/AGENTS.md` |
+| Codex config | `~/.codex/config.toml` |
+| Project scratchpad | `{PROJECT}/.scratchpad/` |
+
+`~/.codex/plamen/` points back to the source checkout. `AGENTS.md` and
+`config.toml` are generated copies, so re-run `plamen install` after updates.
+
+## Required Tools
+
+- Codex CLI (`codex`)
+- Python 3.11 or 3.12
+- Node.js 18+ with `npm` and `npx`
+- Git
+
+Install target-chain tools only for the projects you audit:
+
+| Target | Install with |
+|--------|--------------|
+| EVM/Solidity | `plamen setup` -> EVM |
+| Solana/Anchor | `plamen setup` -> Solana |
+| Aptos/Sui Move | `plamen setup` -> Move |
+| Soroban/Stellar | `plamen setup` -> Soroban |
+| L1 Go/Rust | `plamen setup` -> L1 |
+
+## Optional RAG Database
+
+RAG improves historical vulnerability matching but requires several GB of RAM.
+
+```bash
+export SOLODIT_API_KEY=your_key_here
 plamen rag
 ```
 
-You can always build it later. Run the same command to rebuild after updates.
+Persistent API keys for Codex subprocesses belong in `~/.codex/config.toml`.
 
-### Optional: API keys
+## First Audit
 
-Set in `~/.claude/mcp.json` (Claude Code). Codex CLI does not use MCP — API keys for Codex are set in `~/.codex/config.toml`. Replace the `YOUR_*` placeholders:
-
-| Key | What it does | Impact if missing | Get it |
-|-----|-------------|-------------------|--------|
-| `SOLODIT_API_KEY` | Indexes Solodit findings into RAG | RAG database will be smaller (misses 3400+ Solodit findings) | [solodit.cyfrin.io](https://solodit.cyfrin.io) (free) |
-| `ETHERSCAN_API_KEY` | Fetches verified source code on-chain | No production source verification (EVM only) | [etherscan.io/apis](https://etherscan.io/apis) (free) |
-| `TAVILY_API_KEY` | Web search fallback when RAG fails | Falls back to built-in web search | [tavily.com](https://tavily.com) (free tier) |
-| `HELIUS_API_KEY` | Solana on-chain data | No Solana account inspection | [helius.dev](https://helius.dev) (free tier) |
-| RPC URL | Ethereum fork testing | No fork-mode PoC verification (EVM only) | Alchemy, Infura, or `https://eth.llamarpc.com` |
-
-**None of these are required.** The pipeline runs without any API keys — it just has less production verification and RAG coverage.
-
-## Run your first audit
-
-### Option A: Terminal wizard (recommended for first time)
+Interactive wizard:
 
 ```bash
 plamen
 ```
 
-The interactive wizard walks you through: mode selection → target project → docs → scope → cost estimate → launch. The V2 driver auto-detects your backend (Claude Code or Codex CLI) via `plamen_home()`.
-
-### Option B: One-liner
+One-liner:
 
 ```bash
-plamen core /path/to/your/project
+plamen core /path/to/project
 ```
 
-### Option C: From inside your AI coding assistant
+Inside Codex:
 
-**Claude Code:**
-```
-/plamen-wizard          # Smart contract audit
-/plamen-l1-wizard       # L1 infrastructure audit
-```
-
-**Codex CLI** (no slash commands — uses terminal wrapper):
-```
-$plamen core /path/to/project
+```text
+/plamen-wizard
+/plamen-l1-wizard
 ```
 
-All paths invoke the same V2 deterministic driver. The backend difference is transparent — agent prompts, depth templates, and verification logic are identical.
+The driver writes checkpoints and artifacts under `{PROJECT}/.scratchpad/`.
+If an audit is interrupted, run:
 
-## What mode should I pick?
-
-| Mode | When to use | Plan needed | Time |
-|------|-------------|-------------|------|
-| **Light** | Quick scan, small codebases (<3k lines), Pro plan | Pro | ~15-30 min |
-| **Core** | Standard audit, most projects | Max | ~30-90 min |
-| **Thorough** | High-value audit, complex DeFi, want fuzzing | Max | ~1-3 hours |
-
-Start with **Light** if you're on a Pro plan or just trying it out. Use **Core** for real audits.
-
-These tiers apply to both smart contract and L1 infrastructure audits. For node client / infrastructure codebases (Go/Rust), use `plamen l1 [light|core|thorough]` — same three tiers, same depth loop and verification pipeline, with L1-specific depth agents (consensus-invariant, network-surface) replacing token-flow.
-
-## Verify everything works
-
-Run `plamen setup` at any time to see your toolchain status:
-
-```
-  ╭────────────────────────────────────────────────────╮
-  │  Toolchain                                         │
-  │                                                    │
-  │  ✓claude  ✓codex  ✓python  ✓npx  ✓git          ok │
-  ├────────────────────────────────────────────────────┤
-  │  EVM      ✓forge ✓slither ○medusa             2/3 │
-  │  Solana   ○solana ○anchor ○trident             0/3 │
-  │  Move     ○aptos ○sui                          0/2 │
-  │  Soroban  ○stellar                             0/1 │
-  ├────────────────────────────────────────────────────┤
-  │  RAG DB   vulnerability knowledge base   not built │
-  ╰────────────────────────────────────────────────────╯
+```bash
+plamen resume
 ```
 
-- **✓** = installed
-- **○** = not installed (optional — install only what you need)
-- You need at least one backend (`claude` or `codex`) — both are shown but only one is required
-- **RAG DB** = run `plamen rag` to build
+## Modes
+
+| Mode | Use for |
+|------|---------|
+| Light | Fast first pass |
+| Core | Standard audit |
+| Thorough | Deep audit with extra verification and fuzzing |
+
+Use `plamen l1 [light|core|thorough] /path` for Go/Rust node-client audits.
 
 ## Updating
 
-After pulling new versions:
-
 ```bash
-cd ~/.plamen && git pull && plamen install
+cd ~/.plamen
+git pull
+plamen install
 ```
 
-For Codex backend, add the `--codex` flag:
-
-```bash
-cd ~/.plamen && git pull && plamen install --codex
-```
-
-`git pull` alone updates symlinked files (agents, rules, skills, prompts), but `~/.claude/CLAUDE.md` / `~/.codex/AGENTS.md` (the orchestrator's rules) are injected copies — not symlinks. Without `plamen install`, the orchestrator follows stale rules while everything else is updated. `plamen` will warn you if it detects a version mismatch.
-
-See [updating.md](updating.md) for details on what auto-updates and what doesn't.
-
-## Troubleshooting
-
-See [dependencies.md](dependencies.md) for platform-specific fixes (Windows Developer Mode, macOS hnswlib, Python version issues, etc.).
+See [updating.md](updating.md) for details.

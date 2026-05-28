@@ -41,7 +41,7 @@ if [[ "$LANG" == *rust* ]]; then
 fi
 
 # Opengrep baseline scan
-opengrep --config ~/.claude/agents/skills/injectable/l1/_opengrep-rules/ \
+opengrep --config ~/.codex/plamen/agents/skills/injectable/l1/_opengrep-rules/ \
   --json {path} > {scratchpad}/opengrep_hits.json
 
 # Record primitive status

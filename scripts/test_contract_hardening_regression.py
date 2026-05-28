@@ -476,7 +476,7 @@ def test_phase6_report_prompt_stays_below_context_warning_limit() -> None:
     claude_text = claude_path.read_text(encoding="utf-8")
     assert len(claude_text) < 40_000
 
-    # Codex side is install-state-dependent (post-`plamen install --codex`).
+    # Codex side is install-state-dependent (post-`plamen install`).
     # CI pytest runners don't run install, so the codex symlink target
     # is absent. Skip the parity check there; the install-smoke job
     # already verifies the codex adapter generates the file correctly.

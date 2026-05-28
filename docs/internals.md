@@ -49,7 +49,7 @@ Spawn as independent agents (1 depth budget slot each, 8 total):
 
 ### L1 Skills (infrastructure audits)
 
-Loaded only in L1 mode (`/plamen-l1-wizard` in Claude Code, or `plamen l1` from terminal). Injected into `depth-consensus-invariant` or `depth-network-surface`:
+Loaded only in L1 mode (`/plamen-l1-wizard` inCodex CLI, or `plamen l1` from terminal). Injected into `depth-consensus-invariant` or `depth-network-surface`:
 
 | Skill | Trigger |
 |-------|---------|
@@ -158,7 +158,9 @@ The pipeline driver (`plamen_driver.py`) executes phases as isolated subprocesse
 | `plamen_prompt.py` | Phase prompt building with forward-ref sanitization |
 | `plamen_mechanical.py` | Deterministic report assembly, dedup, tier dispatch |
 | `plamen_display.py` | Rich terminal UI for driver progress |
-| `codex_adapter.py` | Codex CLI backend: tool translation, path rewriting (`~/.claude/` to `~/.codex/plamen/`) |
+| `codex_adapter.py` | Generates Codex config, role files, skills, and command wrappers |
 | `recon_prepass.py` | Pre-recon static analysis (Slither, Opengrep, SCIP) |
 
-The driver auto-detects the active backend via `plamen_home()`, which resolves to `~/.claude/` (Claude Code) or `~/.codex/plamen/` (Codex) depending on the runtime environment. Config files differ per backend: `CLAUDE.md` + `settings.json` + `mcp.json` for Claude Code; `AGENTS.md` + `config.toml` for Codex.
+The driver resolves methodology through `plamen_home()`, which falls back to
+`~/.codex/plamen/`. Codex runtime config lives in `~/.codex/AGENTS.md` and
+`~/.codex/config.toml`.

@@ -4,7 +4,7 @@ description: "Phase 4b: Depth Loop Driver -- spawns depth agents, scanners, nich
 
 # Phase 4b: Adaptive Depth Loop Driver (EVM)
 
-This prompt tells the `claude -p` session how to spawn ALL depth iteration 1 agents. The session reads instantiation data, spawns agents via the Agent tool, waits for them, and verifies artifacts.
+This prompt tells the `codex exec` session how to spawn ALL depth iteration 1 agents. The session reads instantiation data, spawns agents via the Agent tool, waits for them, and verifies artifacts.
 
 ---
 
@@ -29,8 +29,8 @@ Read the following files:
 - `{SCRATCHPAD}/semantic_invariants.md` -- semantic invariant data (if exists; Light mode won't have this)
 - `{SCRATCHPAD}/design_context.md` -- protocol design (for invariant consistency check directive)
 - `{SCRATCHPAD}/confidence_scores.md` -- only exists for iteration 2+; absent for iteration 1
-- `~/.claude/prompts/evm/phase4b-depth-templates.md` -- depth agent role definitions and methodology
-- `~/.claude/prompts/evm/phase4b-scanner-templates.md` -- scanner agent definitions
+- `~/.codex/plamen/prompts/evm/phase4b-depth-templates.md` -- depth agent role definitions and methodology
+- `~/.codex/plamen/prompts/evm/phase4b-scanner-templates.md` -- scanner agent definitions
 
 ---
 
@@ -55,7 +55,7 @@ Read the following files:
 
 Read `{SCRATCHPAD}/template_recommendations.md` -> `## Niche Agents` section. For each niche agent marked `Required: YES`:
 
-1. Read its definition from `~/.claude/agents/skills/niche/{name}/SKILL.md`
+1. Read its definition from `~/.codex/plamen/agents/skills/niche/{name}/SKILL.md`
 2. Add to the spawn roster
 3. Each niche agent = 1 depth budget slot
 4. Model: sonnet
@@ -111,16 +111,16 @@ If prebake files are missing, omit this section entirely.
 
 ### Depth Agent Prompt Template
 
-Each depth agent reads its role definition from `~/.claude/prompts/evm/phase4b-depth-templates.md` and its full methodology from `~/.claude/agents/depth-{role}.md`.
+Each depth agent reads its role definition from `~/.codex/plamen/prompts/evm/phase4b-depth-templates.md` and its full methodology from `~/.codex/plamen/agents/depth-{role}.md`.
 
 ```
 You are Depth Agent: {ROLE} (e.g., depth-token-flow).
 
 ## Your Role Definition
-Read: ~/.claude/agents/depth-{role}.md
+Read: ~/.codex/plamen/agents/depth-{role}.md
 
 ## Depth Methodology
-Read: ~/.claude/prompts/evm/phase4b-depth-templates.md -- follow the {ROLE} section
+Read: ~/.codex/plamen/prompts/evm/phase4b-depth-templates.md -- follow the {ROLE} section
 
 ## Protocol Context
 Read: {SCRATCHPAD}/design_context.md
@@ -137,7 +137,7 @@ Read: {SCRATCHPAD}/design_context.md
 Before CONFIRMING any finding at Medium+ severity, check {SCRATCHPAD}/design_context.md Operational Implications section. If your finding contradicts a documented operational implication, you MUST explain the contradiction or downgrade to CONTESTED.
 
 ## Finding Format
-Read and follow: ~/.claude/rules/finding-output-format.md
+Read and follow: ~/.codex/plamen/rules/finding-output-format.md
 MANDATORY: Every finding MUST include at least one Depth Evidence tag: [BOUNDARY:X=val], [VARIATION:param A->B], or [TRACE:path->outcome]. A finding without any evidence tag is INCOMPLETE and will be flagged for re-analysis in iteration 2. Do not submit findings without tags.
 
 ## Chain Summary (MANDATORY)
@@ -154,13 +154,13 @@ SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agent
 
 ### Scanner Agent Prompt Template
 
-Each scanner reads its checks from `~/.claude/prompts/evm/phase4b-scanner-templates.md`.
+Each scanner reads its checks from `~/.codex/plamen/prompts/evm/phase4b-scanner-templates.md`.
 
 ```
 You are Blind Spot Scanner {LETTER}: {SCANNER_NAME}.
 
 ## Scanner Methodology
-Read: ~/.claude/prompts/evm/phase4b-scanner-templates.md -- follow Scanner {LETTER} section
+Read: ~/.codex/plamen/prompts/evm/phase4b-scanner-templates.md -- follow Scanner {LETTER} section
 
 ## Your Inputs
 - {SCRATCHPAD}/findings_inventory.md
@@ -170,7 +170,7 @@ Read: ~/.claude/prompts/evm/phase4b-scanner-templates.md -- follow Scanner {LETT
 - Source files in scope
 
 ## Finding Format
-Read and follow: ~/.claude/rules/finding-output-format.md
+Read and follow: ~/.codex/plamen/rules/finding-output-format.md
 
 ## Output
 Write your output directly to {SCRATCHPAD}/{OUTPUT_FILE} using the Write tool.
@@ -186,7 +186,7 @@ SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agent
 You are the Validation Sweep Agent. You perform cross-cutting validation checks.
 
 ## Methodology
-Read: ~/.claude/prompts/evm/phase4b-scanner-templates.md -- follow the Validation Sweep section
+Read: ~/.codex/plamen/prompts/evm/phase4b-scanner-templates.md -- follow the Validation Sweep section
 
 ## Your Inputs
 - {SCRATCHPAD}/findings_inventory.md
@@ -208,7 +208,7 @@ SCOPE: Write ONLY to your assigned output file. Do NOT proceed to subsequent pha
 You are Niche Agent: {NICHE_NAME}.
 
 ## Your Methodology
-Read: ~/.claude/agents/skills/niche/{niche_name}/SKILL.md
+Read: ~/.codex/plamen/agents/skills/niche/{niche_name}/SKILL.md
 
 ## Your Inputs
 - {SCRATCHPAD}/findings_inventory.md
@@ -217,7 +217,7 @@ Read: ~/.claude/agents/skills/niche/{niche_name}/SKILL.md
 - Source files in scope
 
 ## Finding Format
-Read and follow: ~/.claude/rules/finding-output-format.md
+Read and follow: ~/.codex/plamen/rules/finding-output-format.md
 
 ## Output
 Write your output directly to {SCRATCHPAD}/niche_{niche_name}_findings.md using the Write tool.
@@ -246,7 +246,7 @@ You are the Design Stress Testing Agent. You stress-test the protocol's design l
 - Source files in scope
 
 ## Finding Format
-Read and follow: ~/.claude/rules/finding-output-format.md
+Read and follow: ~/.codex/plamen/rules/finding-output-format.md
 Use finding IDs: [DST-1], [DST-2], ...
 
 ## Output
@@ -343,12 +343,12 @@ Write `{SCRATCHPAD}/phase4b_manifest.md`:
 When `{MODE}` is `thorough` AND `{LANGUAGE}` is `evm`, run these BEFORE spawning depth agents:
 
 ### Invariant Fuzz Campaign (MANDATORY, zero budget cost)
-Read template: `~/.claude/prompts/evm/phase4b-invariant-fuzz.md`
+Read template: `~/.codex/plamen/prompts/evm/phase4b-invariant-fuzz.md`
 Spawn agent. Await completion. Results written to `{SCRATCHPAD}/invariant_fuzz_results.md`.
 The template has a 5-minute timeout built in.
 
 ### Medusa Campaign (MANDATORY if MEDUSA_AVAILABLE, zero budget cost)
-Read Medusa section from `~/.claude/prompts/evm/phase4b-loop.md`.
+Read Medusa section from `~/.codex/plamen/prompts/evm/phase4b-loop.md`.
 Spawn agent IN PARALLEL with the invariant fuzz agent. Await completion.
 Results written to `{SCRATCHPAD}/medusa_fuzz_findings.md`.
 

@@ -4131,7 +4131,7 @@ def _check_notread_priority_coverage(
 
 
 def _validate_rc_parity(
-    phase: Phase, scratchpad: Path, rc: int, backend: str = "claude",
+    phase: Phase, scratchpad: Path, rc: int, backend: str = "codex",
 ) -> list[str]:
     """Parity check for rc=-2 (timeout-killed) phases (A3).
 
@@ -4149,7 +4149,7 @@ def _validate_rc_parity(
     if rc == 0:
         return []
     # rc is nonzero; rc=-2 is the timeout sentinel, other values are
-    # claude -p internal errors. Both warrant parity.
+    # subprocess internal errors. Both warrant parity.
     issues: list[str] = []
     name = phase.name
     try:
@@ -8223,7 +8223,7 @@ def _generate_verify_queue_retry_hint(issues: list[str]) -> str:
 
 
 def _generate_depth_retry_hint(
-    issues: list[str], *, backend: str = "claude"
+    issues: list[str], *, backend: str = "codex"
 ) -> str:
     """Build retry hint for depth execution-boundary and quality failures."""
     if not issues:
@@ -9843,7 +9843,7 @@ def _validate_sc_subsystem_coverage(
 def _validate_recon_coverage(scratchpad: Path, project_root: str,
                              language: str,
                              subsystem_scope: str | None = None,
-                             backend: str = "claude",
+                             backend: str = "codex",
                              scope_file: str | None = None) -> list[str]:
     """Post-recon: assert every substantial module is cited.
 
@@ -10144,7 +10144,7 @@ def _has_live_placeholder_language(text: str) -> str | None:
 
 
 def _validate_recon_content_structure(
-    scratchpad: Path, backend: str = "claude",
+    scratchpad: Path, backend: str = "codex",
 ) -> tuple[list[str], list[str]]:
     """Check that critical recon artifacts have required structural sections.
 
@@ -10244,7 +10244,7 @@ def _validate_recon_content_structure(
 def _validate_scope_leftover(
     scratchpad: Path,
     subsystem_scope: str | None = None,
-    backend: str = "claude",
+    backend: str = "codex",
 ) -> list[str]:
     """Return uncovered large-file rows from scope_leftover.md."""
     p = scratchpad / "scope_leftover.md"

@@ -4,7 +4,7 @@ description: "Phase 3: Breadth Analysis Driver -- spawns parallel breadth agents
 
 # Phase 3: Parallel Breadth Analysis (Aptos)
 
-This prompt tells the `claude -p` session how to spawn breadth agents. The session reads instantiation data, spawns agents via the Agent tool, waits for them, and verifies artifacts.
+This prompt tells the `codex exec` session how to spawn breadth agents. The session reads instantiation data, spawns agents via the Agent tool, waits for them, and verifies artifacts.
 
 ---
 
@@ -38,7 +38,7 @@ Read the following files to understand what to spawn:
 ## Step 3: Template Instantiation
 
 For each template in `template_recommendations.md` marked `Required: YES`:
-1. Read the skill file from `~/.claude/agents/skills/aptos/{template-name}/SKILL.md` (folder name is lowercase-hyphenated)
+1. Read the skill file from `~/.codex/plamen/agents/skills/aptos/{template-name}/SKILL.md` (folder name is lowercase-hyphenated)
 2. Replace `{PLACEHOLDERS}` with instantiation parameters from `template_recommendations.md`
 3. Strip sections wrapped in `<!-- LOAD_IF: FLAG -->...<!-- END_LOAD_IF: FLAG -->` when the flag was NOT detected
 
@@ -63,7 +63,7 @@ For each template in `template_recommendations.md` marked `Required: YES`:
 
 The 4 always-required skills (ABILITY_ANALYSIS, BIT_SHIFT_SAFETY, TYPE_SAFETY, REF_LIFECYCLE) total ~900-950 lines — exceeding the 300-line breadth agent cap. Split delivery:
 
-1. **Core directives** (~130 lines): Load `~/.claude/agents/skills/aptos/move-safety-core-directives/SKILL.md` into EVERY breadth agent. Counts toward the 300-line cap.
+1. **Core directives** (~130 lines): Load `~/.codex/plamen/agents/skills/aptos/move-safety-core-directives/SKILL.md` into EVERY breadth agent. Counts toward the 300-line cap.
 2. **Move-Safety Agent** (1 dedicated agent): Spawn alongside breadth agents. Loads ALL 4 full skill files (~950 lines). Costs 1 breadth agent slot. Output: `analysis_move_safety.md`.
 
 ### Merge Cap Enforcement (MANDATORY)
@@ -74,7 +74,7 @@ Before composing any agent prompt, verify the 300-line cap mechanically:
 for each planned agent:
   combined_lines = 0
   for each SKILL.md assigned:
-    wc -l ~/.claude/agents/skills/aptos/{skill-name}/SKILL.md
+    wc -l ~/.codex/plamen/agents/skills/aptos/{skill-name}/SKILL.md
     combined_lines += result
   ASSERT: combined_lines <= 300
   If FAIL: split the largest skill into its own dedicated agent
@@ -118,7 +118,7 @@ Instead, for each vulnerability class in your methodology:
 - Source files in scope
 
 ## Finding Format
-Read and follow: ~/.claude/rules/finding-output-format.md
+Read and follow: ~/.codex/plamen/rules/finding-output-format.md
 
 ## Output Requirements
 Write your output directly to {SCRATCHPAD}/analysis_{focus_area}.md using the Write tool.

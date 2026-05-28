@@ -1,6 +1,6 @@
 """Phase C: duplicate / root-cause consolidation gate tests.
 
-Per ~/.claude/rules/report-template.md and ~/.claude/rules/phase6-report-prompts.md
+Per ~/.codex/plamen/rules/report-template.md and ~/.codex/plamen/rules/phase6-report-prompts.md
 STEP 1.5 (Index Agent), findings that share the same root cause MUST be merged
 into one report finding when ALL of:
 

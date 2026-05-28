@@ -6,7 +6,7 @@ description: "Phase 0.5: Bake — SCIP indexing, flat-file pre-bake, and Opengre
 
 > **Purpose**: Documents what the Bake phase produces, where artifacts live, and how
 > downstream agents should consume them. This is a REFERENCE file read by recon and
-> depth phase prompts -- it is NOT executed by `claude -p` directly. The actual CLI
+> depth phase prompts -- it is NOT executed by `codex exec` directly. The actual CLI
 > commands live in `plamen_driver.py`.
 >
 > **When**: Runs BEFORE any recon agent spawns. Must complete before Phase 1.
@@ -62,7 +62,7 @@ and fall back to Grep. This is expected and acceptable.
 |------|----------|----------|
 | `{SCRATCHPAD}/opengrep_hits.json` | Raw JSON output from Opengrep scan using L1 rules | Empty `{"results":[],"errors":"opengrep unavailable"}` |
 
-The Opengrep rules live at `~/.claude/agents/skills/injectable/l1/_opengrep-rules/`.
+The Opengrep rules live at `~/.codex/plamen/agents/skills/injectable/l1/_opengrep-rules/`.
 Agent L1-3 (recon) ranks and deduplicates these hits into `opengrep_hits_ranked.md`.
 
 ### 4. Primitive Status File

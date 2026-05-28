@@ -2,13 +2,13 @@
 
 > **No Move-specific MCP servers are available.** Unlike EVM (which has Slither MCP and Farofino), the Aptos/Move ecosystem does not have dedicated MCP static analysis servers. Use CLI tools via Bash for compilation, testing, and formal verification.
 >
-> **MCP tools (`mcp__unified-vuln-db__*`, `mcp__tavily-search__*`) are available directly.** The servers are configured globally in `~/.claude.json` and load automatically at session start. Call them directly -- no ToolSearch or loading step needed.
+> **MCP tools (`mcp__unified-vuln-db__*`, `mcp__tavily-search__*`) are available directly.** The servers are configured globally in `~/.codex/config.toml` and load automatically at session start. Call them directly -- no ToolSearch or loading step needed.
 >
-> **If a tool call fails with "No such tool available"**, it means the MCP server failed to start. Check with `claude mcp list` and restart the session.
+> **If a tool call fails with "No such tool available"**, it means the MCP server failed to start. Check with `codex mcp list` and restart the session.
 
 > **Mental model**: You are good at understanding INTENT and tracing LOGIC. Tools are good at EXHAUSTIVE ENUMERATION. You miss things when scanning large files manually. Tools never skip anything but can't understand intent. **Use both.**
 
-> **MCP TIMEOUT POLICY (MANDATORY)**: When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls to that provider - switch immediately to fallback (code analysis, grep, WebSearch). Claude Code's default tool timeout is 60s (configurable via `MCP_TOOL_TIMEOUT` env var). You cannot cancel a pending call, but you control what happens after the error returns.
+> **MCP TIMEOUT POLICY (MANDATORY)**: When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls to that provider - switch immediately to fallback (code analysis, grep, WebSearch). Codex's default tool timeout is 60s (configurable via `MCP_TOOL_TIMEOUT` env var). You cannot cancel a pending call, but you control what happens after the error returns.
 
 ---
 

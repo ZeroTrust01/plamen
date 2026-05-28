@@ -12,7 +12,7 @@ labels: bug
 
 - **Audit mode**: Core / Thorough
 - **Language/chain**: EVM / Solana / Aptos / Sui
-- **Claude model**: <!-- e.g., Opus 4, Sonnet 4 -->
+- **Codex model**: <!-- e.g., Opus 4, Sonnet 4 -->
 - **OS**: <!-- Windows / macOS / Linux -->
 
 ## Steps to reproduce

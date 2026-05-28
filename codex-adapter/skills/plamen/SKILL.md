@@ -13,9 +13,9 @@ inside Codex.
 
 Do not manually orchestrate Plamen phases. Do not spawn recon, breadth,
 depth, verification, or report agents yourself. The Python driver is the
-sole owner of phase sequencing for both Claude and Codex routes.
+sole owner of phase sequencing for Codex runs.
 
-Your job is the same job as the Claude `/plamen` command wizard:
+Your job is the Codex `/plamen` command wizard:
 
 1. Detect an existing audit and offer resume/fresh/new.
 2. Collect missing launch parameters.
@@ -54,7 +54,7 @@ Defaults:
 - `cli_backend`: `codex`
 
 Do not ask a model-selection question from this skill. The user is already
-running inside the model/backend they chose.
+running inside the model/runtime they chose.
 
 ## Driver Commands
 

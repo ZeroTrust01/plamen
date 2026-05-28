@@ -8,7 +8,7 @@ Execute the instructions below directly and stop. Do not spawn subagents.
 > unexplored cross-class Medium+ rows, this phase should not have been
 > spawned — return immediately with `DONE: 0 new chains (no unexplored pairs)`.
 > **Reference (not load-bearing)**: Full multi-agent methodology is in
-> `~/.claude/rules/phase4c-chain-prompt.md`.
+> `~/.codex/plamen/rules/phase4c-chain-prompt.md`.
 
 ---
 
@@ -28,7 +28,7 @@ The first chain analysis identified `{M}` chains. Unexplored cross-class finding
 For EACH unexplored cross-class Medium+ pair (limit to 15, prioritizing highest severity):
 1. Read both findings' full details
 2. Check: does A's postcondition enable B's precondition? And vice versa?
-3. If YES: create CHAIN HYPOTHESIS using the Chain Hypothesis Format (see Agent 2 prompt at `~/.claude/prompts/shared/v2/phase4c-chain-agent2.md` → Chain Hypothesis Format section)
+3. If YES: create CHAIN HYPOTHESIS using the Chain Hypothesis Format (see Agent 2 prompt at `~/.codex/plamen/prompts/shared/v2/phase4c-chain-agent2.md` → Chain Hypothesis Format section)
 4. Validate via RAG (`assess_hypothesis_strength`, `get_similar_findings`, `search_solodit_live` with WebSearch fallback)
 
 **MCP Timeout Policy**: When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls to that provider — switch immediately to fallback. You cannot cancel a pending call — but you control what happens after the error returns.

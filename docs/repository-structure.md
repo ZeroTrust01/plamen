@@ -2,7 +2,7 @@
 
 ```
 ~/.plamen/
-├── CLAUDE.md                          # Orchestrator config — mode table, rules, file refs
+├── AGENTS.md                          # Orchestrator config — mode table, rules, file refs
 ├── plamen.py                          # Terminal wrapper (Rich + InquirerPy)
 ├── plamen.sh / plamen.bat             # Launcher scripts
 ├── VERSION                            # Semantic version (2.0.2)
@@ -61,13 +61,13 @@
 │   ├── plamen_prompt.py               # Phase prompt building
 │   ├── plamen_mechanical.py           # Deterministic report assembly
 │   ├── plamen_display.py              # Rich terminal UI for driver
-│   ├── codex_adapter.py               # Codex CLI backend adapter
+│   ├── codex_adapter.py               # Codex config generator
 │   └── recon_prepass.py               # Pre-recon static analysis
 │
-├── codex-adapter/                     # Codex CLI backend config source
+├── codex-adapter/                     # Codex config source
 │   ├── AGENTS.md                      # Codex orchestrator config
 │   ├── config.toml                    # Codex model/MCP settings (generated)
-│   ├── commands/                      # Codex slash commands
+│   ├── commands/                      # Codex command wrappers
 │   └── skills/                        # Codex skill overrides
 │
 ├── custom-mcp/                        # MCP servers

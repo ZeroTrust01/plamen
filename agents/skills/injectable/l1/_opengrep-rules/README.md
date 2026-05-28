@@ -9,7 +9,7 @@ This directory contains the Opengrep rule pack for the L1 audit mode. Rules live
 ```python
 # From a depth agent or orchestrator
 opengrep_scan(
-    rule_path="~/.claude/agents/skills/injectable/l1/_opengrep-rules/",
+    rule_path="~/.codex/plamen/agents/skills/injectable/l1/_opengrep-rules/",
     target_path="{PROJECT_PATH}",
     output_format="sarif",  # default — feeds the T2 SARIF merge harness
 )
@@ -68,8 +68,8 @@ func GetHeadersFrom_fixed(count uint64) []uint64 {
 **MCP wrapper equivalents** (invoked from within a depth agent):
 
 ```python
-opengrep_validate(rule_path="~/.claude/agents/skills/injectable/l1/_opengrep-rules/")
-opengrep_test(rule_path="~/.claude/agents/skills/injectable/l1/_opengrep-rules/")
+opengrep_validate(rule_path="~/.codex/plamen/agents/skills/injectable/l1/_opengrep-rules/")
+opengrep_test(rule_path="~/.codex/plamen/agents/skills/injectable/l1/_opengrep-rules/")
 ```
 
 ## Starter rules (v0.1)

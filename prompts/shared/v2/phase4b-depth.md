@@ -1,7 +1,7 @@
 # Phase 4b: Adaptive Depth Loop
 
 > **Loaded by**: The V2 driver's Phase 4b subprocess (depth analysis loop).
-> **Reference**: `~/.claude/rules/phase4-confidence-scoring.md` for scoring model,
+> **Reference**: `~/.codex/plamen/rules/phase4-confidence-scoring.md` for scoring model,
 > anti-dilution rules, and convergence criteria.
 > **Purpose**: Self-contained methodology for the adaptive depth loop including
 > iteration 1-3, agent roles, scoring integration, convergence criteria, blind
@@ -125,7 +125,7 @@ required. The Python verifier treats disposition-as-severity as contract drift.
 
 Before spawning any of the 4 standard depth agents, read:
 
-`~/.claude/prompts/{LANGUAGE}/phase4b-depth-templates.md`
+`~/.codex/plamen/prompts/{LANGUAGE}/phase4b-depth-templates.md`
 
 Use the matching role template from that file as the base prompt for each standard
 depth agent. Do not summarize, weaken, or omit template requirements. The shared
@@ -209,7 +209,7 @@ Performs cross-cutting validation across all contracts: write-site completeness,
 ### Niche Agents (flag-triggered)
 
 For each REQUIRED niche agent in `template_recommendations.md` -> `Niche Agents` section:
-- Read definition from `~/.claude/agents/skills/niche/{name}/SKILL.md`
+- Read definition from `~/.codex/plamen/agents/skills/niche/{name}/SKILL.md`
 - Spawn alongside depth agents
 - Each niche agent = 1 budget slot
 - Output: `{SCRATCHPAD}/niche_{name}_findings.md`
@@ -277,7 +277,7 @@ in Core/Thorough mode.
 
 Use the standalone scoring prompt:
 
-`~/.claude/prompts/shared/v2/phase4b-scoring.md`
+`~/.codex/plamen/prompts/shared/v2/phase4b-scoring.md`
 
 When writing `confidence_scores.md`, preserve original depth/scanner/niche
 finding IDs such as `DCI-3`, `DST-4`, `DX-2`, `DN-1`, `PERT-1`, `SLITHER-1`,
@@ -381,7 +381,7 @@ After depth iteration completes, spawn the Finding Perturbation Agent (sonnet, 1
 - Catches the "single-hit satisfaction" class
 - Output: `{SCRATCHPAD}/perturbation_findings.md` with `[PERT-N]` IDs
 
-Use the standalone prompt `~/.claude/prompts/shared/v2/phase4b-perturbation.md`.
+Use the standalone prompt `~/.codex/plamen/prompts/shared/v2/phase4b-perturbation.md`.
 
 ### Step 8: Skill Execution Checklist (MANDATORY)
 
@@ -392,7 +392,7 @@ After depth iteration completes, spawn the Depth Skill Execution Checklist Agent
 - Gaps become investigation questions for DA iteration 2 per AD-6
 - Output: `{SCRATCHPAD}/skill_execution_gaps.md` (also satisfies `skill_execution_checklist.md` via any_of group)
 
-Use the standalone prompt `~/.claude/prompts/shared/v2/phase4b-skill-checklist.md`.
+Use the standalone prompt `~/.codex/plamen/prompts/shared/v2/phase4b-skill-checklist.md`.
 
 ---
 
@@ -410,7 +410,7 @@ if MODE != THOROUGH:
     return from the depth subprocess
 
 // STEP 1: Read the static manifest (orchestrator MUST NOT modify this file)
-manifest = Read("~/.claude/prompts/{LANGUAGE}/phase4b-required-artifacts.md")
+manifest = Read("~/.codex/plamen/prompts/{LANGUAGE}/phase4b-required-artifacts.md")
 
 // STEP 2: Check EVERY required artifact exists
 missing = []
@@ -452,13 +452,13 @@ LOG checkpoint result to {SCRATCHPAD}/checkpoint_postdepth.md
 When `MODE == thorough` AND `LANGUAGE == evm`:
 
 **Step A: Invariant Fuzz Campaign** (MANDATORY — zero budget cost)
-Read template: `~/.claude/prompts/{LANGUAGE}/phase4b-invariant-fuzz.md`
+Read template: `~/.codex/plamen/prompts/{LANGUAGE}/phase4b-invariant-fuzz.md`
 Spawn agent. Await completion. Write results to `invariant_fuzz_results.md`.
 The template has a 5-minute timeout built in. Do NOT skip this to save time.
 
 **Step B: Medusa Campaign** (MANDATORY if MEDUSA_AVAILABLE — zero budget cost)
 Read the standalone Medusa prompt:
-`~/.claude/prompts/shared/v2/phase4b-medusa.md`.
+`~/.codex/plamen/prompts/shared/v2/phase4b-medusa.md`.
 Spawn agent IN PARALLEL with Step A. Await completion.
 Write results to `medusa_fuzz_findings.md`.
 

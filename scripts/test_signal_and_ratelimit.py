@@ -348,7 +348,7 @@ def test_failure_diagnosis_decodes_non_cp1252_stdout(tmp_path):
         stdout = b"### What Happened\nbad byte: \x90\n### Root Cause\nok"
         stderr = b""
 
-    with patch.object(display, "_find_claude_bin", return_value="claude"), \
+    with patch.object(display, "_find_codex_bin", return_value="codex"), \
          patch.object(display.subprocess, "run", return_value=FakeResult()):
         display.print_failure_diagnosis(
             "breadth",

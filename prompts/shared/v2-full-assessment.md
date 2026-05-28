@@ -1,7 +1,7 @@
 # V2 Full-Pipeline Assessment — Post-Optimization
 
 > **Purpose**: Comprehensive forensic verification of the Plamen V2 driver after all optimization phases (Opus 4.7 alignment, chain pre-filter, SC prebake, critical fixes).
-> **Usage**: After a V2 audit completes or crashes, paste this into a new Claude Code conversation at the project root.
+> **Usage**: After a V2 audit completes or crashes, paste this into a new Codex CLI conversation at the project root.
 > **Driver version**: 2804 lines, 42 phases, 17 critical fixes applied.
 
 You are performing an adversarial post-audit assessment. Find every failure, gap, skipped step, silent error, quality issue, and inconsistency. Do not praise what worked — report evidence.
@@ -474,13 +474,13 @@ print(f'Internal IDs in body: {len(ids)}')
 if ids: print(f'  Sample: {ids[:5]}')
 " 2>/dev/null
 
-echo "=== Claude metadata in body ==="
+echo "=== model metadata in body ==="
 python -c "
 import re
 rpt = open('AUDIT_REPORT.md').read()
 parts = re.split(r'(?=## Appendix A:)', rpt, maxsplit=1)
-hits = re.findall(r'\b(Claude|Anthropic|Opus\s+\d|Sonnet\s+\d|Haiku\s+\d)\b', parts[0], re.I)
-print(f'Claude metadata: {len(hits)}')
+hits = re.findall(r'\b(Opus\s+\d|Sonnet\s+\d|Haiku\s+\d)\b', parts[0], re.I)
+print(f'model metadata: {len(hits)}')
 " 2>/dev/null
 
 echo "=== report_quality.md ==="
@@ -514,7 +514,7 @@ grep "report_gates" "$S/pipeline_checkpoint.md"
 
 **CRITICAL FAIL if**: Section count != summary total (Fix 3 staleness regression — report_assemble skipped despite stale tiers). Any tier file mtime > report mtime AND report_assemble shows 0.0s duration (ghost-skip reoccurred).
 
-**FAIL if**: Internal IDs in body > 0. Claude metadata > 0. Appendix A missing. report_quality.md missing. report_coverage.md missing.
+**FAIL if**: Internal IDs in body > 0. model metadata > 0. Appendix A missing. report_quality.md missing. report_coverage.md missing.
 
 ---
 

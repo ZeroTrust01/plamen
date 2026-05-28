@@ -13,16 +13,16 @@ description: "Launch the V2 deterministic Smart Contract audit pipeline (same as
 **Routing rule** (evaluate `$ARGUMENTS` exactly once, before any other step):
 
 - If `$ARGUMENTS` is empty OR does NOT contain the literal token `wrapper-launch`:
-  - **STOP processing this file.** Read and execute `~/.claude/commands/plamen-wizard.md`
+  - **STOP processing this file.** Read and execute `~/.codex/plamen/commands/plamen-wizard.md`
     from its Step 1 onward, passing `$ARGUMENTS` through unchanged. The wizard
     collects audit parameters and launches the deterministic Python driver at
-    `~/.claude/scripts/plamen_driver.py`. The driver runs each phase as an
+    `~/.codex/plamen/scripts/plamen_driver.py`. The driver runs each phase as an
     isolated subprocess with gates, dynamic retry, and crash-resumable
     checkpoints — replacing the legacy V1 LLM orchestrator that previously
     lived in this file.
   - Do NOT run any of the Step 0..Step 6 sections below in interactive mode.
     Those sections remain in this file ONLY because the driver invokes them
-    via `claude -p --resume` with `wrapper-launch` set, section-extracting one
+    via `codex exec --resume` with `wrapper-launch` set, section-extracting one
     phase block at a time. They are NOT a complete interactive pipeline.
 
 - If `$ARGUMENTS` contains `wrapper-launch`:
@@ -32,7 +32,7 @@ description: "Launch the V2 deterministic Smart Contract audit pipeline (same as
     the per-phase invocation correctly.
 
 > **Why this routing exists**: pre-v2.0.0, `/plamen` was an LLM-orchestrator
-> prompt that ran the entire audit pipeline inside a single Claude Code
+> prompt that ran the entire audit pipeline inside a single Codex CLI
 > conversation. That worked on small audits but drifted on large ones —
 > context saturation late in the run caused mandatory steps to be silently
 > skipped, output files to be claimed-written-but-missing on disk, and
@@ -47,13 +47,13 @@ description: "Launch the V2 deterministic Smart Contract audit pipeline (same as
 
 ## Orchestration Protocol
 
-**MANDATORY**: Before starting any audit work, read and apply `~/.claude/rules/orchestrator-rules.md`. It contains the AUDIT MODES table, CRITICAL RULES 1-16, and the orchestration architecture. You are the orchestrator " those rules govern how you spawn agents, manage phases, and enforce completeness.
+**MANDATORY**: Before starting any audit work, read and apply `~/.codex/plamen/rules/orchestrator-rules.md`. It contains the AUDIT MODES table, CRITICAL RULES 1-16, and the orchestration architecture. You are the orchestrator " those rules govern how you spawn agents, manage phases, and enforce completeness.
 
 ## Step 0: Interactive Setup Wizard
 
 **Shortcut handling**: Parse `$ARGUMENTS` for pre-filled values:
 - If it contains "light", "core", or "thorough", set `MODE` accordingly.
-- **If it contains "l1" (L1 infrastructure audit mode, experimental)**: set `MODE=l1` and **delegate the entire audit flow to `~/.claude/commands/plamen-l1.md`**. Read that file and follow its instructions from Step 0 onwards. This file (plamen.md) covers smart-contract modes only. Do NOT attempt to run L1 audits through the smart-contract pipeline " the phase shape, depth roles, skill set, and verification protocol are all different. L1-specific wizard, Phase 0.5 Bake, layer-decomposed recon/breadth, new depth agent roles (depth-consensus-invariant, depth-network-surface), removed Phase 4c, and the new evidence-tag verification live in `plamen-l1.md`.
+- **If it contains "l1" (L1 infrastructure audit mode, experimental)**: set `MODE=l1` and **delegate the entire audit flow to `~/.codex/plamen/commands/plamen-l1.md`**. Read that file and follow its instructions from Step 0 onwards. This file (plamen.md) covers smart-contract modes only. Do NOT attempt to run L1 audits through the smart-contract pipeline " the phase shape, depth roles, skill set, and verification protocol are all different. L1-specific wizard, Phase 0.5 Bake, layer-decomposed recon/breadth, new depth agent roles (depth-consensus-invariant, depth-network-surface), removed Phase 4c, and the new evidence-tag verification live in `plamen-l1.md`.
 - If it contains an absolute path (e.g., `D:\...` or `/home/...`), set `PROJECT_PATH` to that path. Otherwise use cwd.
 - If it contains `docs:` followed by a path or URL, set `DOCS_PATH` to that value and skip Step 0c.
 - If it contains `nodocs`, set `DOCS_PATH` to empty and skip Step 0c.
@@ -86,19 +86,19 @@ First, output the banner as text (no tool calls):
 
 ### Version Check (MANDATORY " run before toolchain probe)
 
-Read the VERSION file and compare against the version in your CLAUDE.md context:
+Read the VERSION file and compare against the version in your AGENTS.md context:
 
 ```bash
-cat ~/.claude/VERSION 2>/dev/null || cat ~/.plamen/VERSION 2>/dev/null || echo "unknown"
+cat ~/.codex/plamen/VERSION 2>/dev/null || cat ~/.plamen/VERSION 2>/dev/null || echo "unknown"
 ```
 
 The VERSION file should say `2.0.2`. Compare this against the version in the header of this prompt (`v2.0.2`). If they differ, warn the user:
 
-> **Version mismatch detected.** Your CLAUDE.md rules are from v{your version} but the repo is at v{VERSION file}. Run `cd ~/.plamen && git pull && plamen install` to update. Proceeding with stale rules may cause wrong agent counts or skipped pipeline steps.
+> **Version mismatch detected.** Your AGENTS.md rules are from v{your version} but the repo is at v{VERSION file}. Run `cd ~/.plamen && git pull && plamen install` to update. Proceeding with stale rules may cause wrong agent counts or skipped pipeline steps.
 
-If the VERSION file says a NEWER version than `2.0.2` (the version hardcoded in this prompt), it means the repo was updated but `plamen install` was not re-run to re-inject the updated CLAUDE.md. The same warning applies.
+If the VERSION file says a NEWER version than `2.0.2` (the version hardcoded in this prompt), it means the repo was updated but `plamen install` was not re-run to re-inject the updated AGENTS.md. The same warning applies.
 
-**Do NOT skip this check.** A version mismatch means the orchestrator rules (agent counts, mandatory steps, mode table) in CLAUDE.md are out of sync with the skills, prompts, and templates on disk.
+**Do NOT skip this check.** A version mismatch means the orchestrator rules (agent counts, mandatory steps, mode table) in AGENTS.md are out of sync with the skills, prompts, and templates on disk.
 
 Then run a quick toolchain probe (via Bash, all in one command):
 
@@ -106,7 +106,7 @@ Then run a quick toolchain probe (via Bash, all in one command):
 export PATH="$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$HOME/.cargo/bin:$HOME/.aptoscli/bin:$HOME/.local/bin:$HOME/go/bin:$PATH" && \
 echo "Toolchain:" && \
 echo -n "  Required: " && \
-(command -v claude >/dev/null 2>&1 && echo -n "✓claude " || echo -n "✗claude ") && \
+(command -v codex >/dev/null 2>&1 && echo -n "✓codex " || echo -n "✗codex ") && \
 (command -v python >/dev/null 2>&1 && echo -n "✓python " || (command -v python3 >/dev/null 2>&1 && echo -n "✓python " || echo -n "✗python ")) && \
 (command -v npx >/dev/null 2>&1 && echo -n "✓npx " || echo -n "✗npx ") && \
 (command -v git >/dev/null 2>&1 && echo -n "✓git" || echo -n "✗git") && echo "" && \
@@ -126,7 +126,7 @@ echo -n "  Soroban:  " && \
 (cargo scout-audit --version >/dev/null 2>&1 && echo -n "✓scout" || echo -n "○scout") && echo ""
 ```
 
-Display the output to the user. If any required tools (claude, python, npx, git) show ✗, warn:
+Display the output to the user. If any required tools (codex, python, npx, git) show ✗, warn:
 > **Warning**: Missing required tools. Run `plamen setup` in your terminal to install them.
 
 If optional tools are missing, note briefly:
@@ -281,7 +281,7 @@ Before starting the pipeline, get a cost estimate by calling `plamen.py`'s `esti
 Run via Bash:
 
 ```bash
-PY_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null) && "$PY_CMD" ~/.claude/plamen.py --estimate "{PROJECT_PATH}" {MODE} {SCOPE_ARGS}
+PY_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null) && "$PY_CMD" ~/.codex/plamen/plamen.py --estimate "{PROJECT_PATH}" {MODE} {SCOPE_ARGS}
 ```
 
 Where `{SCOPE_ARGS}` is:
@@ -293,7 +293,7 @@ If `plamen.py --estimate` is not available (old version), use this fallback:
 
 ```bash
 PY_CMD=$(command -v python3 2>/dev/null || command -v python 2>/dev/null) && "$PY_CMD" -c "
-import sys; sys.path.insert(0, '$HOME/.claude')
+import sys; sys.path.insert(0, '$HOME/.codex')
 from plamen import estimate_cost
 import json
 r = estimate_cost('{PROJECT_PATH}', '{MODE}', scope_file='{SCOPE_FILE}', scope_notes='{SCOPE_NOTES}')
@@ -374,7 +374,7 @@ AskUserQuestion(questions=[{
 If the user selected "Compare":
 1. If `REPORT_PATH` and `GROUND_TRUTH_PATH` are both set from `$ARGUMENTS`, skip to step 3.
 2. Otherwise, use `AskUserQuestion` to ask for both report paths (both must be `.md` files " PDFs cannot be diffed).
-3. Read both files and follow the Post-Audit Improvement Protocol from `~/.claude/rules/post-audit-improvement-protocol.md`.
+3. Read both files and follow the Post-Audit Improvement Protocol from `~/.codex/plamen/rules/post-audit-improvement-protocol.md`.
 
 Do NOT proceed to Step 1.
 
@@ -440,12 +440,12 @@ in the project root. For EVM call-graph DOT exports, always use
 `{PROJECT_ROOT}/artifacts/call-graphs/`.
 
 **Tree architecture " path resolution**:
-- **Language-specific prompts**: `~/.claude/prompts/{LANGUAGE}/`
-- **Shared rules**: `~/.claude/rules/`
-- **Skills**: `~/.claude/agents/skills/{LANGUAGE}/`
-- **Injectable skills**: `~/.claude/agents/skills/injectable/`
-- **Niche agents**: `~/.claude/agents/skills/niche/`
-- **Depth agents**: `~/.claude/agents/depth-*.md`
+- **Language-specific prompts**: `~/.codex/plamen/prompts/{LANGUAGE}/`
+- **Shared rules**: `~/.codex/plamen/rules/`
+- **Skills**: `~/.codex/plamen/agents/skills/{LANGUAGE}/`
+- **Injectable skills**: `~/.codex/plamen/agents/skills/injectable/`
+- **Niche agents**: `~/.codex/plamen/agents/skills/niche/`
+- **Depth agents**: `~/.codex/plamen/agents/depth-*.md`
 
 ---
 
@@ -507,7 +507,7 @@ Include this block verbatim in every Thorough-mode SC depth agent prompt:
 >
 > The `{...}` tokens above are placeholders showing the schema " replace with REAL values from the codebase you are auditing. Do NOT copy the placeholder text verbatim. Cite real file paths from THIS audit's source tree, not from any example or prior audit. File extensions vary by language: `.sol` (Solidity), `.rs` (Soroban / Solana / Aptos / Sui), `.move` (Move). Use whatever extension matches your audit target.
 >
-> **One row per (skill, numbered-section) pair** for every skill listed in `template_recommendations.md` BINDING MANIFEST as `Required = YES` and routed to your role per `~/.claude/rules/skill-index.md` "Inject Into" column. Resolve the numbered sections by reading each skill's `SKILL.md` " sections start with `## N. Title`.
+> **One row per (skill, numbered-section) pair** for every skill listed in `template_recommendations.md` BINDING MANIFEST as `Required = YES` and routed to your role per `~/.codex/plamen/rules/skill-index.md` "Inject Into" column. Resolve the numbered sections by reading each skill's `SKILL.md` " sections start with `## N. Title`.
 >
 > **Allowed `Executed` values**:
 > - `yes` " section executed; Evidence MUST contain a `file:line` token (e.g. `Vault.sol:L45` or `Vault.sol:L45-67`). The driver hard-rejects ceremonial `yes` rows without `file:line` evidence.
@@ -555,7 +555,7 @@ This file survives compaction (read from disk). After any compaction event, the 
 |-------|----------|--------|-------|------|----------|
 | **Phase 1** | Recon Agent(s) | Artifacts + templates | 2 sonnet (no RAG/fork) | 4 agents | 4 agents |
 | **Phase 2** | Orchestrator | Instantiated prompts | All | All | All |
-| **Phase 3** | Breadth Agents | Findings files | 3-4 sonnet | 5-9 claude-opus-4-6 | 5-9 claude-opus-4-6 |
+| **Phase 3** | Breadth Agents | Findings files | 3-4 sonnet | 5-9 gpt-5.5 | 5-9 gpt-5.5 |
 | **Phase 3b** | Re-Scan + Per-Contract | Masked findings | Skip | Skip | Thorough only |
 | **Phase 4a** | Inventory Agent | Findings inventory | 1 sonnet | 1 sonnet | 1 sonnet |
 | **Phase 4a.5** | Semantic Invariant Agent | Write-sites + invariants | Skip | Pass 1 | Pass 1+2 |
@@ -572,7 +572,7 @@ When `MODE == light`, the orchestrator applies these overrides:
 
 1. **All agents use Sonnet or Haiku** " no Opus spawns. Use `model="sonnet"` for all analysis/verification agents, `model="haiku"` for assembler only.
 2. **Recon**: Spawn 2 sonnet agents (not 4). Agent L1 = build + static analysis + tests (Tasks 1,2,8,9). Agent L2 = docs + patterns + surface + templates (Tasks 3,4,5,6,7,10). Skip RAG meta-buffer (Task 0) and fork ancestry entirely.
-3. **Breadth**: Cap at 3-4 sonnet agents (not 5-9 claude-opus-4-6). Use same merge hierarchy.
+3. **Breadth**: Cap at 3-4 sonnet agents (not 5-9 gpt-5.5). Use same merge hierarchy.
 4. **Semantic Invariants**: Skip entirely. Depth agents read `state_variables.md` directly.
 5. **Depth Loop**: Spawn 4 merged sonnet agents " (a) combined token-flow + state-trace, (b) combined edge-case + external, (c) combined scanner A+B+C, (d) validation sweep. No niche agents, no injectable investigation agents. Iteration 1 only, no confidence scoring. **Note**: Merges (a) and (c) are deliberate exceptions to the standard merge hierarchy " token-flow + state-trace and 3-scanner compression reduce agent count at the cost of per-domain attention depth. This is a known tradeoff accepted for Pro plan rate limit compliance.
 6. **Chain Analysis**: Single sonnet agent performs both enabler enumeration and chain matching in one pass.
@@ -592,10 +592,10 @@ After creating the scratchpad directory and before spawning recon agents, ensure
 echo “# Plamen violations log” > “{scratchpad}/violations.md”
 ```
 
-The V2 driver (`plamen_driver.py`) handles artifact gate enforcement between phases automatically. Every workflow violation per CLAUDE.md Rule 12 is logged to `violations.md`.
+The V2 driver (`plamen_driver.py`) handles artifact gate enforcement between phases automatically. Every workflow violation per AGENTS.md Rule 12 is logged to `violations.md`.
 
 ### Step 1: Read Recon Prompt
-**Read full prompt from**: `~/.claude/prompts/{LANGUAGE}/phase1-recon-prompt.md`
+**Read full prompt from**: `~/.codex/plamen/prompts/{LANGUAGE}/phase1-recon-prompt.md`
 
 Replace placeholders: `{path}`, `{scratchpad}`, `{docs_path_or_url_if_provided}`, `{network_if_provided}`, `{scope_file_if_provided}`, `{scope_notes_if_provided}`
 
@@ -606,9 +606,9 @@ Replace placeholders: `{path}`, `{scratchpad}`, `{docs_path_or_url_if_provided}`
 | Agent | Spawn | Model | Await? |
 |-------|-------|-------|--------|
 | **1A (RAG)** | `run_in_background: true` | sonnet | **NO** " fire-and-forget |
-| **1B (Docs + External)** | foreground | claude-opus-4-6 (Core/Thorough) or sonnet (Light) | YES |
+| **1B (Docs + External)** | foreground | gpt-5.5 (Core/Thorough) or sonnet (Light) | YES |
 | **2 (Build + Slither)** | foreground | sonnet | YES |
-| **3 (Patterns + Surface)** | foreground | claude-opus-4-6 (Core/Thorough) or sonnet (Light) | YES |
+| **3 (Patterns + Surface)** | foreground | gpt-5.5 (Core/Thorough) or sonnet (Light) | YES |
 
 **Agent 1A is FIRE-AND-FORGET**: spawn in background, never block on it. If it hasn't returned when 1B/2/3 finish, write fallback `meta_buffer.md` and proceed.
 
@@ -663,7 +663,7 @@ Replace placeholders: `{path}`, `{scratchpad}`, `{docs_path_or_url_if_provided}`
 
 For Aptos and Sui audits, the 4 always-required skills (ABILITY_ANALYSIS, BIT_SHIFT_SAFETY, TYPE_SAFETY, REF_LIFECYCLE/OBJECT_OWNERSHIP) total ~900-950 lines " far exceeding the 300-line breadth agent cap. These are split into two delivery layers:
 
-1. **Core directives** (~130 lines): Loaded into EVERY breadth agent via `~/.claude/agents/skills/{LANGUAGE}/move-safety-core-directives/SKILL.md`. Contains inventory greps + flag tables. Counts toward the 300-line cap but leaves ~170 lines for conditional skills.
+1. **Core directives** (~130 lines): Loaded into EVERY breadth agent via `~/.codex/plamen/agents/skills/{LANGUAGE}/move-safety-core-directives/SKILL.md`. Contains inventory greps + flag tables. Counts toward the 300-line cap but leaves ~170 lines for conditional skills.
 2. **Move-Safety Agent** (1 dedicated agent): Spawned in Phase 3 alongside breadth agents. Loads ALL 4 full skill files (~950 lines). Runs the complete trace methodology that breadth agents cannot fit. Costs 1 breadth agent slot.
 
 The Move-Safety Agent prompt: load all 4 always-required SKILLs into a single agent with scope = "full Move-specific safety analysis." It is a breadth producer and MUST write `analysis_move_safety.md`; inventory consumes it through the normal `analysis_*.md` input set. It must not write `findings_inventory.md` directly. Depth agents still receive full skills per their injection rules (depth agents have separate context windows, not subject to the breadth merge cap).
@@ -672,7 +672,7 @@ The Move-Safety Agent prompt: load all 4 always-required SKILLs into a single ag
 
 ### Step 2b: Instantiate Templates
 For each template in `template_recommendations.md`:
-1. Read template from `~/.claude/agents/skills/{LANGUAGE}/{template-name}/SKILL.md` (folder name is lowercase-hyphenated version of the template name, e.g., ORACLE_ANALYSIS â†’ oracle-analysis)
+1. Read template from `~/.codex/plamen/agents/skills/{LANGUAGE}/{template-name}/SKILL.md` (folder name is lowercase-hyphenated version of the template name, e.g., ORACLE_ANALYSIS â†’ oracle-analysis)
 2. For Aptos/Sui breadth agents: load `move-safety-core-directives/SKILL.md` instead of the 4 individual always-required skills. The full skills go to the Move-Safety Agent only.
 3. Replace `{PLACEHOLDERS}` with instantiation parameters
 4. **Conditional loading**: Strip sections wrapped in `<!-- LOAD_IF: FLAG -->...<!-- END_LOAD_IF: FLAG -->` when the flag was NOT detected
@@ -680,7 +680,7 @@ For each template in `template_recommendations.md`:
 
 ### Step 2b.1: Load Injectable Skills (Split Delivery)
 1. Read protocol type from `{scratchpad}/template_recommendations.md` â†’ `## Injectable Skills`
-2. For each recommended injectable: Read from `~/.claude/agents/skills/injectable/{skill-name}/SKILL.md`
+2. For each recommended injectable: Read from `~/.codex/plamen/agents/skills/injectable/{skill-name}/SKILL.md`
 3. **Breadth agents**: Extract ONLY section headers + key questions (1-line per section, ~200 tokens max)
 4. **Depth agents (Phase 4b)**: Generate specific investigation questions per depth domain. Spawn **dedicated Injectable Investigation Agents** (sonnet, 1 per domain) IN PARALLEL with main depth agents
 5. Injectable skills spawn up to 4 dedicated sonnet agents (1 per domain), each costing 1 depth budget slot
@@ -693,7 +693,7 @@ For each template in `template_recommendations.md`:
 For each planned breadth agent:
   combined_lines = 0
   For each SKILL.md assigned to this agent:
-    line_count = wc -l ~/.claude/agents/skills/{LANGUAGE}/{skill-name}/SKILL.md
+    line_count = wc -l ~/.codex/plamen/agents/skills/{LANGUAGE}/{skill-name}/SKILL.md
     combined_lines += line_count
   ASSERT: combined_lines <= 300
   If FAIL:
@@ -737,7 +737,7 @@ SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agent
 
 Every agent prompt that makes MCP tool calls (recon agents, depth agents, chain agents, verifiers, RAG sweep) MUST include this directive at the end of its prompt:
 
-*"When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record [MCP: TIMEOUT] and skip ALL remaining calls to that provider " switch immediately to fallback (code analysis, grep, WebSearch). Claude Code's tool timeout is set to 300s (5 min) via MCP_TOOL_TIMEOUT in settings.json to accommodate ChromaDB cold start. You cannot cancel a pending call " but you control what happens after the error returns."*
+*"When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record [MCP: TIMEOUT] and skip ALL remaining calls to that provider " switch immediately to fallback (code analysis, grep, WebSearch). Codex CLI's tool timeout is set to 300s (5 min) via MCP_TOOL_TIMEOUT in Codex config to accommodate ChromaDB cold start. You cannot cancel a pending call " but you control what happens after the error returns."*
 
 The orchestrator MUST append this text when composing prompts for MCP-calling agents. Agents that do not make MCP calls (pure code analysis breadth agents, report writers) do not need it.
 
@@ -794,7 +794,7 @@ After all return:
 
 **Skip in Light and Core mode.**
 
-**Read full prompt from**: `~/.claude/rules/phase3b-rescan-prompt.md`
+**Read full prompt from**: `~/.codex/plamen/rules/phase3b-rescan-prompt.md`
 
 **Flow**: first-pass breadth runs first, then re-scan loop (sonnet, 2-3 agents, max 2 iterations, exit on 0 new findings above Info), then per-contract analysis (3c), then Phase 4a inventory consumes first-pass, re-scan, and per-contract outputs before Phase 4a.5. Re-scan/per-contract phases do not write `findings_inventory.md`.
 
@@ -806,17 +806,17 @@ After all return:
 
 | Step | Prompt File | Agent | Trigger |
 |------|-------------|-------|---------|
-| 4a | `~/.claude/prompts/{LANGUAGE}/phase4a-inventory-prompt.md` | Inventory (+ side effect trace) | Always |
-| 3b | `~/.claude/rules/phase3b-rescan-prompt.md` | Breadth Re-Scan (sonnet) | Thorough only (after Phase 3, before 4a) |
+| 4a | `~/.codex/plamen/prompts/{LANGUAGE}/phase4a-inventory-prompt.md` | Inventory (+ side effect trace) | Always |
+| 3b | `~/.codex/plamen/rules/phase3b-rescan-prompt.md` | Breadth Re-Scan (sonnet) | Thorough only (after Phase 3, before 4a) |
 | 4a.5 | (inline below) | Semantic Invariant Agent (sonnet) | Core/Thorough |
-| 4b (loop) | `~/.claude/prompts/{LANGUAGE}/phase4b-loop.md` | Orchestrator | Always |
-| 4b (depth) | `~/.claude/prompts/{LANGUAGE}/phase4b-depth-templates.md` | 4 Depth Agents | Always |
-| 4b (scanners) | `~/.claude/prompts/{LANGUAGE}/phase4b-scanner-templates.md` | 3 Scanners + Validation + Design Stress | Always |
+| 4b (loop) | `~/.codex/plamen/prompts/{LANGUAGE}/phase4b-loop.md` | Orchestrator | Always |
+| 4b (depth) | `~/.codex/plamen/prompts/{LANGUAGE}/phase4b-depth-templates.md` | 4 Depth Agents | Always |
+| 4b (scanners) | `~/.codex/plamen/prompts/{LANGUAGE}/phase4b-scanner-templates.md` | 3 Scanners + Validation + Design Stress | Always |
 | 4b.4 | inline below | Attention Repair | Thorough only |
-| 4c | `~/.claude/rules/phase4c-chain-prompt.md` | Chain Analysis (+ enabler enumeration) | Always |
-| 5 | `~/.claude/prompts/{LANGUAGE}/phase5-verification-prompt.md` + `~/.claude/rules/phase5-poc-execution.md` | Verifiers (with PoC execution) | Both (scope differs) |
+| 4c | `~/.codex/plamen/rules/phase4c-chain-prompt.md` | Chain Analysis (+ enabler enumeration) | Always |
+| 5 | `~/.codex/plamen/prompts/{LANGUAGE}/phase5-verification-prompt.md` + `~/.codex/plamen/rules/phase5-poc-execution.md` | Verifiers (with PoC execution) | Both (scope differs) |
 | 5.5 | (orchestrator inline) | Post-verification finding extraction | Always |
-| 6a-c | `~/.claude/rules/phase6-report-prompts.md` | Index â†’ Tier Writers â†’ Assembler | Core/Thorough (Light: 2-agent override) |
+| 6a-c | `~/.codex/plamen/rules/phase6-report-prompts.md` | Index â†’ Tier Writers â†’ Assembler | Core/Thorough (Light: 2-agent override) |
 
 ### Gate Enforcement
 
@@ -948,12 +948,12 @@ Return: 'DONE: {G} cluster_gaps, {T} consequence traces ({D} deep_propagation), 
 When `MODE == thorough` AND `LANGUAGE == evm`:
 
 **Step A: Invariant Fuzz Campaign** (MANDATORY " zero budget cost)
-Read template: `~/.claude/prompts/{LANGUAGE}/phase4b-invariant-fuzz.md`
+Read template: `~/.codex/plamen/prompts/{LANGUAGE}/phase4b-invariant-fuzz.md`
 Spawn agent. Await completion. Write results to `invariant_fuzz_results.md`.
 The template has a 5-minute timeout built in. Do NOT skip this to save time.
 
 **Step B: Medusa Campaign** (MANDATORY if MEDUSA_AVAILABLE " zero budget cost)
-Read from `~/.claude/prompts/{LANGUAGE}/phase4b-loop.md` Medusa section.
+Read from `~/.codex/plamen/prompts/{LANGUAGE}/phase4b-loop.md` Medusa section.
 Spawn agent IN PARALLEL with Step A. Await completion.
 Write results to `medusa_fuzz_findings.md`.
 
@@ -968,7 +968,7 @@ If violations are detected, log them to `{SCRATCHPAD}/violations.md` but continu
 
 ### Phase 4b: Adaptive Depth Loop
 
-> **Reference**: `~/.claude/rules/phase4-confidence-scoring.md` for scoring model, anti-dilution rules, and convergence criteria.
+> **Reference**: `~/.codex/plamen/rules/phase4-confidence-scoring.md` for scoring model, anti-dilution rules, and convergence criteria.
 
 The orchestrator runs the full loop autonomously:
 
@@ -980,7 +980,7 @@ The orchestrator runs the full loop autonomously:
    - Blind Spot Scanner B (Guards, Visibility & Inheritance + Override Safety)
    - Blind Spot Scanner C (Role Lifecycle, Capability Exposure & Reachability)
    - Validation Sweep Agent
-   - **Niche agents**: For each REQUIRED niche agent in `template_recommendations.md` â†’ `Niche Agents` section, read its definition from `~/.claude/agents/skills/niche/{name}/SKILL.md` and spawn alongside depth agents. Each niche agent = 1 budget slot.
+   - **Niche agents**: For each REQUIRED niche agent in `template_recommendations.md` â†’ `Niche Agents` section, read its definition from `~/.codex/plamen/agents/skills/niche/{name}/SKILL.md` and spawn alongside depth agents. Each niche agent = 1 budget slot.
    - **Timeout split-and-retry**: If any agent times out, split its findings into 2 "lite" agents (max 3 findings each, no static analyzer, max 5 files). 2 lite agents = 1 budget unit.
    - **§STEP-TRACE injection (Thorough only " MANDATORY)**: Each of the 4 depth-agent prompts (token-flow, state-trace, edge-case, external) MUST include the §STEP-TRACE directive verbatim (see top of this file). Without it, the agent will not emit `step_execution_trace_{role}.md` and the driver's `_check_step_execution_traces` gate will hard-fail the depth phase. Light/Core mode depth spawns SKIP §STEP-TRACE " the gate is mode-gated to Thorough only. Scanners and niche agents do NOT need §STEP-TRACE (different agent class; gate operates on `depth_*_findings.md` only).
 
@@ -1010,9 +1010,9 @@ The orchestrator runs the full loop autonomously:
 
 6. **Design Stress Testing (Thorough mode only)**: ALWAYS spawn Design Stress Testing Agent. 1 slot is pre-reserved and UNCONDITIONAL " not a "budget redirect." This agent runs regardless of remaining budget.
 
-7. **Finding Perturbation Agent (Thorough mode only " MANDATORY)**: After depth iteration completes, spawn the Finding Perturbation Agent (sonnet, 1 pre-reserved budget slot). Full spawn template + mutation operators in `~/.claude/prompts/{LANGUAGE}/phase4b-loop.md` §FINDING PERTURBATION AGENT. Expected output: `{SCRATCHPAD}/perturbation_findings.md` with `[PERT-N]` IDs. This agent applies 5 structured mutation operators (DIRECTION_FLIP, BOUNDARY_SHIFT, CONDITION_NEGATE, OPERAND_SWAP, TEMPORAL_INVERT) to each CONFIRMED depth finding and tests for adjacent vulnerabilities. Catches the "single-hit satisfaction" class where agents find one variant of a bug and stop. Research: AdverTest Feb 2026 +8.56% FDR, Meta mutation-guided test gen FSE 2025. Runs in parallel with step 8. **This is a MANDATORY THOROUGH STEP per CLAUDE.md Rule 12** " the never-cut gate enforces the output file; omission is a workflow violation.
+7. **Finding Perturbation Agent (Thorough mode only " MANDATORY)**: After depth iteration completes, spawn the Finding Perturbation Agent (sonnet, 1 pre-reserved budget slot). Full spawn template + mutation operators in `~/.codex/plamen/prompts/{LANGUAGE}/phase4b-loop.md` §FINDING PERTURBATION AGENT. Expected output: `{SCRATCHPAD}/perturbation_findings.md` with `[PERT-N]` IDs. This agent applies 5 structured mutation operators (DIRECTION_FLIP, BOUNDARY_SHIFT, CONDITION_NEGATE, OPERAND_SWAP, TEMPORAL_INVERT) to each CONFIRMED depth finding and tests for adjacent vulnerabilities. Catches the "single-hit satisfaction" class where agents find one variant of a bug and stop. Research: AdverTest Feb 2026 +8.56% FDR, Meta mutation-guided test gen FSE 2025. Runs in parallel with step 8. **This is a MANDATORY THOROUGH STEP per AGENTS.md Rule 12** " the never-cut gate enforces the output file; omission is a workflow violation.
 
-8. **Skill Execution Checklist (Thorough mode only " MANDATORY)**: After depth iteration completes, spawn the Depth Skill Execution Checklist Agent (haiku, negligible cost, runs in parallel with step 7). Full spawn template in `~/.claude/prompts/{LANGUAGE}/phase4b-loop.md` §DEPTH SKILL EXECUTION CHECKLIST. Expected output: `{SCRATCHPAD}/skill_execution_gaps.md` (also satisfies `skill_execution_checklist.md` via any_of group). Verifies each depth agent executed each step of its assigned skill and produces a coverage table `| Agent | Skill Step | Evidence in Output? | Gap? |`. Gaps become investigation questions for DA iteration 2 per AD-6. **This is a MANDATORY THOROUGH STEP per CLAUDE.md Rule 12** " the never-cut gate enforces the output file; omission is a workflow violation.
+8. **Skill Execution Checklist (Thorough mode only " MANDATORY)**: After depth iteration completes, spawn the Depth Skill Execution Checklist Agent (haiku, negligible cost, runs in parallel with step 7). Full spawn template in `~/.codex/plamen/prompts/{LANGUAGE}/phase4b-loop.md` §DEPTH SKILL EXECUTION CHECKLIST. Expected output: `{SCRATCHPAD}/skill_execution_gaps.md` (also satisfies `skill_execution_checklist.md` via any_of group). Verifies each depth agent executed each step of its assigned skill and produces a coverage table `| Agent | Skill Step | Evidence in Output? | Gap? |`. Gaps become investigation questions for DA iteration 2 per AD-6. **This is a MANDATORY THOROUGH STEP per AGENTS.md Rule 12** " the never-cut gate enforces the output file; omission is a workflow violation.
 
 > **Steps 6-8 run in parallel.** Spawn the 3 agents (DST + perturbation + checklist) in a single message with 3 Task calls, then `await` all three. Do NOT serialize " they operate on depth outputs independently and have no dependencies on each other.
 
@@ -1030,7 +1030,7 @@ if MODE != THOROUGH:
     goto Phase 4c
 
 // STEP 1: Read the static manifest (orchestrator MUST NOT modify this file)
-manifest = Read("~/.claude/prompts/{LANGUAGE}/phase4b-required-artifacts.md")
+manifest = Read("~/.codex/plamen/prompts/{LANGUAGE}/phase4b-required-artifacts.md")
 
 // STEP 2: Check EVERY required artifact exists
 missing = []
@@ -1126,7 +1126,7 @@ verification, or report.
 
 ### Phase 4b.5: RAG Validation Sweep (MANDATORY for Core/Thorough)
 
-Read: `~/.claude/rules/phase4-confidence-scoring.md` â†’ "Phase 4b.5" section.
+Read: `~/.codex/plamen/rules/phase4-confidence-scoring.md` â†’ "Phase 4b.5" section.
 Spawn sonnet RAG sweep agent. This is NOT optional.
 If MCP tools fail â†’ agent falls back to WebSearch â†’ if that fails â†’ floor scores (0.3).
 The sweep MUST be attempted. Writing floor scores without attempting is a VIOLATION.
@@ -1135,7 +1135,7 @@ The sweep MUST be attempted. Writing floor scores without attempting is a VIOLAT
 
 ### Phase 5: Verification (Batched Spawning)
 
-> **Read templates from**: `~/.claude/prompts/{LANGUAGE}/phase5-verification-prompt.md` + `~/.claude/rules/phase5-poc-execution.md`
+> **Read templates from**: `~/.codex/plamen/prompts/{LANGUAGE}/phase5-verification-prompt.md` + `~/.codex/plamen/rules/phase5-poc-execution.md`
 
 **Step 5.0: Compute verification scope**
 
@@ -1144,8 +1144,8 @@ Read `{SCRATCHPAD}/hypotheses.md` (first 100 lines ONLY " hypothesis table). Cou
 | Mode | Scope |
 |------|-------|
 | Light | ALL Medium+ (all sonnet) |
-| Core | ALL Medium+ (claude-opus-4-6 for High/Chain, sonnet for Medium) |
-| Thorough | ALL severities (claude-opus-4-6 for High/Chain, sonnet for Medium, sonnet for Low/Info) + fuzz variants |
+| Core | ALL Medium+ (gpt-5.5 for High/Chain, sonnet for Medium) |
+| Thorough | ALL severities (gpt-5.5 for High/Chain, sonnet for Medium, sonnet for Low/Info) + fuzz variants |
 
 **Step 5.0.1: Crash resume " skip already-verified hypotheses**
 
@@ -1159,12 +1159,12 @@ If total verifiers to spawn **> 8**: split into severity-tier batches. Spawn eac
 
 | Batch | Contains | Model | Max parallel agents |
 |-------|----------|-------|---------------------|
-| A | Chain hypotheses (CH-*) + High standalone | claude-opus-4-6 | all (typically 7-10) |
+| A | Chain hypotheses (CH-*) + High standalone | gpt-5.5 | all (typically 7-10) |
 | B | Medium (first half, up to 6) | sonnet | 6 |
 | C | Medium (second half) | sonnet | 6 |
 | D | Low + Info (single agent covering ALL) | sonnet | 1 |
 
-> **Batch sizing**: If a tier has â‰¤ 6 hypotheses, it fits in one batch. If > 6, split into sub-batches of â‰¤ 6. Chains + High are always in the same batch (both claude-opus-4-6, rarely > 10 combined).
+> **Batch sizing**: If a tier has â‰¤ 6 hypotheses, it fits in one batch. If > 6, split into sub-batches of â‰¤ 6. Chains + High are always in the same batch (both gpt-5.5, rarely > 10 combined).
 
 > **Between batches**: Do NOT read the `verify_*.md` files written by the completed batch. Only note the short return message from each agent. Detailed output lives on disk " the orchestrator does not need it until Phase 5.5/6.
 
@@ -1182,7 +1182,7 @@ This keeps return messages to ~50 tokens per agent instead of the full verificat
 
 ### Phase 5.1: Skeptic-Judge Verification (Thorough mode only, HIGH/CRIT)
 
-> **Read templates from**: `~/.claude/prompts/{LANGUAGE}/phase5-verification-prompt.md` â†’ "Skeptic-Judge Verification" section
+> **Read templates from**: `~/.codex/plamen/prompts/{LANGUAGE}/phase5-verification-prompt.md` â†’ "Skeptic-Judge Verification" section
 
 After ALL standard Phase 5 verifiers complete:
 1. Identify all HIGH/CRIT findings with standard verdicts
@@ -1233,25 +1233,25 @@ After ALL verifiers complete:
 
 ### Phase 6: Report Generation
 
-> **Light mode override**: Do NOT read `~/.claude/rules/phase6-report-prompts.md`. Instead, spawn 2 agents: (1) a single sonnet writer handling ID assignment, root-cause consolidation, and all severity tiers inline; (2) a haiku assembler that merges the writer output with the report header template. No separate index agent or tier-split writers. Include the Light mode disclaimer per override #9.
+> **Light mode override**: Do NOT read `~/.codex/plamen/rules/phase6-report-prompts.md`. Instead, spawn 2 agents: (1) a single sonnet writer handling ID assignment, root-cause consolidation, and all severity tiers inline; (2) a haiku assembler that merges the writer output with the report header template. No separate index agent or tier-split writers. Include the Light mode disclaimer per override #9.
 
-> **Core/Thorough**: Read `~/.claude/rules/phase6-report-prompts.md` and follow the full 5-agent pipeline (Index â†’ 3 Tier Writers â†’ Assembler).
+> **Core/Thorough**: Read `~/.codex/plamen/rules/phase6-report-prompts.md` and follow the full 5-agent pipeline (Index â†’ 3 Tier Writers â†’ Assembler).
 
-> **V2 driver sharded execution (v2.1.2)**: When this prompt is invoked by the V2 driver (`plamen_driver.py`) in Core/Thorough mode, each sub-step below is a SEPARATE `claude -p` subprocess with its own timeout. The driver extracts ONLY the relevant sub-step section for each subprocess (via `extract_phase_sections`). Do NOT attempt to run multiple sub-steps in one conversation when the incoming prompt contains only ONE of the sub-sections below " that signals a sharded execution and you must execute only the one section you received and then stop. V1 (LLM-orchestrator) runs all sub-steps in one conversation as before.
+> **V2 driver sharded execution (v2.1.2)**: When this prompt is invoked by the V2 driver (`plamen_driver.py`) in Core/Thorough mode, each sub-step below is a SEPARATE `codex exec` subprocess with its own timeout. The driver extracts ONLY the relevant sub-step section for each subprocess (via `extract_phase_sections`). Do NOT attempt to run multiple sub-steps in one conversation when the incoming prompt contains only ONE of the sub-sections below " that signals a sharded execution and you must execute only the one section you received and then stop. V1 (LLM-orchestrator) runs all sub-steps in one conversation as before.
 
 #### Step 6a: Index Agent
 
 **Scope**: Produce the Master Finding Index (`report_index.md`) and `report_coverage.md` from `findings_inventory.md`, `verify_*.md` files, `rag_validation.md`, `finding_mapping.md`, and chain outputs. Apply STEP 1.5 Root-Cause Consolidation and STEP 5.5 Promotion Coverage Audit.
 
-**Execution**: Read `~/.claude/rules/phase6-report-prompts.md` §Step 6a and follow it verbatim. The Index Agent is ONE `general-purpose` subagent with `model="haiku"`. Verify completeness inline per §Step 6a.1.
+**Execution**: Read `~/.codex/plamen/rules/phase6-report-prompts.md` §Step 6a and follow it verbatim. The Index Agent is ONE `general-purpose` subagent with `model="haiku"`. Verify completeness inline per §Step 6a.1.
 
 **Output contract**: `{SCRATCHPAD}/report_index.md` (Master Finding Index, summary counts, tier assignments, consolidation map, cross-reference map, excluded findings) AND `{SCRATCHPAD}/report_coverage.md` (raw candidate ledger, uncovered mode-limited recommendations, promotion failures repaired).
 
 #### Step 6b: Tier Writers
 
-**Scope**: Produce `report_critical_high.md`, `report_medium.md`, and `report_low_info.md` by spawning THREE tier-writer agents in parallel (one message, three `Task()` calls). Each tier writer follows the Tier Writer Common Rules from `~/.claude/rules/phase6-report-prompts.md` §Step 6b.
+**Scope**: Produce `report_critical_high.md`, `report_medium.md`, and `report_low_info.md` by spawning THREE tier-writer agents in parallel (one message, three `Task()` calls). Each tier writer follows the Tier Writer Common Rules from `~/.codex/plamen/rules/phase6-report-prompts.md` §Step 6b.
 
-**Execution**: Read `~/.claude/rules/phase6-report-prompts.md` §Step 6b and spawn the three tier writers per that spec. The V2 driver overrides Critical+High to `model="sonnet"` for cost discipline; Medium and Low+Info also use `model="sonnet"`.
+**Execution**: Read `~/.codex/plamen/rules/phase6-report-prompts.md` §Step 6b and spawn the three tier writers per that spec. The V2 driver overrides Critical+High to `model="sonnet"` for cost discipline; Medium and Low+Info also use `model="sonnet"`.
 
 **Output contract**: Three tier files, each with one `###` section per finding assigned by the Index Agent. Every section â‰¥ 400 chars. NO internal pipeline IDs in the body. Cross-references use only report IDs.
 
@@ -1259,27 +1259,27 @@ After ALL verifiers complete:
 
 **Scope**: Merge the three tier files + `report_index.md` header + Executive Summary + Priority Remediation + Appendix A into `{PROJECT_ROOT}/AUDIT_REPORT.md`.
 
-**Execution**: Read `~/.claude/rules/phase6-report-prompts.md` §Step 6c and follow its STEP 1 (assemble), STEP 1.5 (runtime metadata hygiene), STEP 2 (quality checks), STEP 3 (write) verbatim.
+**Execution**: Read `~/.codex/plamen/rules/phase6-report-prompts.md` §Step 6c and follow its STEP 1 (assemble), STEP 1.5 (runtime metadata hygiene), STEP 2 (quality checks), STEP 3 (write) verbatim.
 
-**Output contract**: `{PROJECT_ROOT}/AUDIT_REPORT.md` exists with header + summary table + every finding from the three tier files + remediation order + Appendix A. The V2 driver runs a mechanical `report_quality.md` gate after this phase exits (v2.1.2): section count per tier matches the summary table, no internal-ID leakage outside Appendix A, no Claude-era runtime metadata, non-stub. Assembler does NOT need to produce `report_quality.md` itself " the driver generates it mechanically. A timestamped snapshot `AUDIT_REPORT-YYYYMMDD-HHMM.md` is written by the driver on successful pipeline exit.
+**Output contract**: `{PROJECT_ROOT}/AUDIT_REPORT.md` exists with header + summary table + every finding from the three tier files + remediation order + Appendix A. The V2 driver runs a mechanical `report_quality.md` gate after this phase exits (v2.1.2): section count per tier matches the summary table, no internal-ID leakage outside Appendix A, no Codex-runtime runtime metadata, non-stub. Assembler does NOT need to produce `report_quality.md` itself " the driver generates it mechanically. A timestamped snapshot `AUDIT_REPORT-YYYYMMDD-HHMM.md` is written by the driver on successful pipeline exit.
 
 ---
 
 ## FINDING OUTPUT FORMAT
 
-**Full format in**: `~/.claude/rules/finding-output-format.md` " ALL agents MUST read this file and use its format for findings. Includes finding template, Rules Applied table (R4-R16), enforcement rules, and Depth Evidence Tags.
+**Full format in**: `~/.codex/plamen/rules/finding-output-format.md` " ALL agents MUST read this file and use its format for findings. Includes finding template, Rules Applied table (R4-R16), enforcement rules, and Depth Evidence Tags.
 
 ---
 
 ## GENERIC SECURITY RULES
 
-**Full rules (R1-R16) in**: `~/.claude/prompts/{LANGUAGE}/generic-security-rules.md` " agents MUST read this file. Key enforcement: CONTESTED â†’ adversarial assumption (R4), REFUTED â†’ requires chain analysis for enablers first (R12).
+**Full rules (R1-R16) in**: `~/.codex/plamen/prompts/{LANGUAGE}/generic-security-rules.md` " agents MUST read this file. Key enforcement: CONTESTED â†’ adversarial assumption (R4), REFUTED â†’ requires chain analysis for enablers first (R12).
 
 ---
 
 ## SELF-CHECK
 
-**Full checklists in**: `~/.claude/prompts/{LANGUAGE}/self-check-checklists.md` " orchestrator MUST read and verify before Phase 5.
+**Full checklists in**: `~/.codex/plamen/prompts/{LANGUAGE}/self-check-checklists.md` " orchestrator MUST read and verify before Phase 5.
 
 Quick checks before verification:
 - [ ] All external deps identified?

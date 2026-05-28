@@ -621,7 +621,7 @@ def _scip_to_graph_artifacts(scratch: Path, index_path: Path, proj: Path) -> str
     """Convert a SCIP index into the 4 graph artifacts depth agents consume."""
     try:
         sys_path_added = False
-        scip_reader_dir = Path(os.path.expanduser("~/.claude"))
+        scip_reader_dir = Path(os.path.expanduser("~/.codex/plamen"))
         if str(scip_reader_dir) not in sys.path:
             sys.path.insert(0, str(scip_reader_dir))
             sys_path_added = True
@@ -1164,7 +1164,7 @@ def run_recon_prepass(config: dict) -> Dict[str, str]:
     except Exception as e:
         return {"_mkdir_scratch": f"FAILED:{e}"}
 
-    skill_index = Path(os.path.expanduser("~/.claude/rules/skill-index.md"))
+    skill_index = Path(os.path.expanduser("~/.codex/plamen/rules/skill-index.md"))
 
     if pipeline == "l1":
         _safe("subsystem_map.md",    lambda: _write_subsystem_map_l1(scratch, proj))

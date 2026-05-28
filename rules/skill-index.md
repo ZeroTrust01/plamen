@@ -1,10 +1,10 @@
 # Skill Index
 
-> Skills are methodology files read by agents via `Read ~/.claude/agents/skills/{LANGUAGE}/{name}/SKILL.md`.
+> Skills are methodology files read by agents via `Read ~/.codex/plamen/agents/skills/{LANGUAGE}/{name}/SKILL.md`.
 > The orchestrator resolves `{LANGUAGE}` to `evm`, `solana`, `aptos`, or `sui` based on Step 0 detection.
 > EVM has 18 skills, Solana has 20 skills, Aptos has 22 skills (21 + core directives), Sui has 22 skills (21 + core directives) - no shared skills directory exists.
 
-## EVM Skills (`~/.claude/agents/skills/evm/`)
+## EVM Skills (`~/.codex/plamen/agents/skills/evm/`)
 
 > Load these when `LANGUAGE=evm`. All 18 skills use EVM/Solidity concepts.
 
@@ -29,7 +29,7 @@
 | STORAGE_LAYOUT_SAFETY | STORAGE_LAYOUT flag (proxy/upgradeable/diamond/delegatecall/sstore/sload/assembly) | depth-state-trace, depth-edge-case |
 | CROSS_CHAIN_MESSAGE_INTEGRITY | CROSS_CHAIN_MSG flag (lzReceive/ccipReceive/receiveWormholeMessages/setPeer/setTrustedRemote) | breadth agents, depth-external |
 
-## Solana Skills (`~/.claude/agents/skills/solana/`)
+## Solana Skills (`~/.codex/plamen/agents/skills/solana/`)
 
 > Load these when `LANGUAGE=solana`. All 20 skills use Solana/Anchor concepts.
 
@@ -56,7 +56,7 @@
 | FLASH_LOAN_INTERACTION | FLASH_LOAN flag | breadth agents, depth-token-flow, depth-edge-case |
 | TRIDENT_API_REFERENCE | `trident_available: true` in build_status.md | invariant fuzz generator (Phase 4b), security-verifier Template 6 |
 
-## Aptos Skills (`~/.claude/agents/skills/aptos/`)
+## Aptos Skills (`~/.codex/plamen/agents/skills/aptos/`)
 
 > Load these when `LANGUAGE=aptos`. 21 standard skills + 1 core directive (22 total). All use Aptos Move concepts.
 
@@ -85,7 +85,7 @@
 | CENTRALIZATION_RISK | 3+ privileged roles (optional) | breadth agents |
 | SHARE_ALLOCATION_FAIRNESS | SHARE_ALLOCATION flag | breadth agents, depth-edge-case |
 
-## Sui Skills (`~/.claude/agents/skills/sui/`)
+## Sui Skills (`~/.codex/plamen/agents/skills/sui/`)
 
 > Load these when `LANGUAGE=sui`. 21 standard skills + 1 core directive (22 total). All use Sui Move concepts.
 
@@ -114,7 +114,7 @@
 | CENTRALIZATION_RISK | 3+ privileged roles (optional) | breadth agents |
 | SHARE_ALLOCATION_FAIRNESS | SHARE_ALLOCATION flag | breadth agents, depth-edge-case |
 
-## Soroban Skills (`~/.claude/agents/skills/soroban/`)
+## Soroban Skills (`~/.codex/plamen/agents/skills/soroban/`)
 
 > Load these when `LANGUAGE=soroban`. 19 skills total (13 cross-language + 6 Soroban-specific). All use Soroban/Stellar Rust concepts.
 
@@ -140,7 +140,7 @@
 | CENTRALIZATION_RISK | 3+ privileged roles (optional) | breadth agents |
 | SHARE_ALLOCATION_FAIRNESS | SHARE_ALLOCATION flag | breadth agents, depth-edge-case |
 
-## Injectable Skills (`~/.claude/agents/skills/injectable/`)
+## Injectable Skills (`~/.codex/plamen/agents/skills/injectable/`)
 
 > Injectable skills are protocol-type-specific. They load ONLY when recon classifies the protocol as the matching type.
 > They are NOT counted in the per-tree standard skill set.
@@ -164,7 +164,7 @@
 4. Injectable skill methodology is APPENDED to the relevant agent's prompt (not a separate agent)
 5. No new agents spawned - injectable skills increase depth of existing agents
 
-## Niche Agents (`~/.claude/agents/skills/niche/`)
+## Niche Agents (`~/.codex/plamen/agents/skills/niche/`)
 
 > Niche agents are flag-triggered STANDALONE agents. Unlike injectable skills (which append methodology to existing agents), niche agents spawn as independent agents in Phase 4b iteration 1. Each costs 1 depth budget slot.
 > They are NOT counted in the per-tree standard skill set.
@@ -185,7 +185,7 @@
 ### How Niche Agents Work
 1. Recon Agent 3 detects trigger flag (e.g., `MISSING_EVENT` from setter_list.md/emit_list.md)
 2. Recon adds niche agent to `template_recommendations.md` → `## Niche Agents` in BINDING MANIFEST
-3. Orchestrator reads niche agent definition from `~/.claude/agents/skills/niche/{name}/SKILL.md`
+3. Orchestrator reads niche agent definition from `~/.codex/plamen/agents/skills/niche/{name}/SKILL.md`
 4. Orchestrator spawns niche agent in Phase 4b iteration 1 alongside standard depth agents
 5. Niche agent writes to `{SCRATCHPAD}/niche_{name}_findings.md`
 6. Chain analysis reads niche agent output alongside depth/scanner findings
@@ -199,11 +199,11 @@
 | Depth of analysis | Surface scan | Medium (enriches existing agent) | **Deep** (entire agent focused on one concern) |
 | Use when | Quick check, low FP risk | Protocol-type-specific methodology | Concern needs dedicated focus, scanner sub-check is insufficient |
 
-## L1 Skills (`~/.claude/agents/skills/injectable/l1/`)
+## L1 Skills (`~/.codex/plamen/agents/skills/injectable/l1/`)
 
 > **Status**: Experimental — loaded only when `/plamen l1` mode is invoked.
 > **Trigger detection**: Recon agent sets `L1_PATTERN=true` when it detects an L1 / node-client codebase (Go or Rust) via imports such as `reth-*`, `libp2p`, `cometbft`, `cosmos-sdk`, `beacon-chain/`, `eth/protocols`, `fork_choice`, `x/staking`. Subsystem flags (CONSENSUS, P2P, MEMPOOL, LIGHT_CLIENT, RPC, BLS, STATE_SYNC, EXECUTION, XENV, VALIDATOR_LIFECYCLE, HARDFORK) are set per detected module.
-> **Injection**: Skills are APPENDED to `depth-consensus-invariant` or `depth-network-surface` (new agent roles defined in `~/.claude/agents/depth-consensus-invariant.md` and `~/.claude/agents/depth-network-surface.md`). They do NOT spawn new agents per the Plamen injectable-skill convention.
+> **Injection**: Skills are APPENDED to `depth-consensus-invariant` or `depth-network-surface` (new agent roles defined in `~/.codex/plamen/agents/depth-consensus-invariant.md` and `~/.codex/plamen/agents/depth-network-surface.md`). They do NOT spawn new agents per the Plamen injectable-skill convention.
 > **Severity**: All L1 findings use the matrix in `docs/l1-mode/severity-matrix.md`, not the smart-contract matrix in `rules/report-template.md`.
 
 | Skill | Trigger Pattern | Inject Into |
@@ -235,8 +235,8 @@
 
 Two new depth agents are added for L1 mode, living alongside the existing `depth-token-flow`, `depth-state-trace`, `depth-edge-case`, `depth-external`:
 
-- **`depth-consensus-invariant`** — consensus safety/liveness invariants, non-determinism sweeps, Byzantine-scenario reasoning, cross-client differential. Definition: `~/.claude/agents/depth-consensus-invariant.md`.
-- **`depth-network-surface`** — p2p/RPC/mempool attack surface enumeration, pre-auth panic sweeps, asymmetric cost analysis, eclipse-vector check, rate-limit audit. Definition: `~/.claude/agents/depth-network-surface.md`.
+- **`depth-consensus-invariant`** — consensus safety/liveness invariants, non-determinism sweeps, Byzantine-scenario reasoning, cross-client differential. Definition: `~/.codex/plamen/agents/depth-consensus-invariant.md`.
+- **`depth-network-surface`** — p2p/RPC/mempool attack surface enumeration, pre-auth panic sweeps, asymmetric cost analysis, eclipse-vector check, rate-limit audit. Definition: `~/.codex/plamen/agents/depth-network-surface.md`.
 
 Existing depth agents that remain useful in L1 mode: `depth-state-trace` (storage/pruning), `depth-external` (dependency audits, cross-client), `depth-edge-case` (boundary conditions). `depth-token-flow` does NOT load in L1 mode (no in-scope DeFi token flow).
 

@@ -19,7 +19,7 @@ Before ANY verdict:
 5. **Confidence Gate**: Uncertain? → CONTESTED, not REFUTED. Only REFUTED if defense proven with production evidence
 6. **Enabler Search**: Before REFUTED, ask "Does ANY other finding enable this?"
 
-Reference: `~/.claude/prompts/{LANGUAGE}/generic-security-rules.md` for full rule definitions (Rules 1-16). The orchestrator resolves `{LANGUAGE}` before spawning you.
+Reference: `~/.codex/plamen/prompts/{LANGUAGE}/generic-security-rules.md` for full rule definitions (Rules 1-16). The orchestrator resolves `{LANGUAGE}` before spawning you.
 
 ## Your Role
 
@@ -31,7 +31,7 @@ For EACH target in your assignment:
 
 Before detailed tracing, if the target includes transaction identity, replay
 protection, sequencing, or cross-layer message persistence, read
-`~/.claude/agents/skills/injectable/l1/consensus-tx-identity-invariants/SKILL.md`
+`~/.codex/plamen/agents/skills/injectable/l1/consensus-tx-identity-invariants/SKILL.md`
 and apply its identity/binding checklist.
 
 ### 1. Complete State Graph

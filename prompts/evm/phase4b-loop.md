@@ -11,7 +11,7 @@
 > **Coverage-first design**: Iteration 1 ALWAYS spawns all 8 agents.
 > Iterations 2-3 are targeted, autonomous, and anti-dilution protected.
 > **The orchestrator runs the ENTIRE loop without user intervention.**
-> **Reference**: `~/.claude/rules/phase4-confidence-scoring.md` for scoring model and anti-dilution rules.
+> **Reference**: `~/.codex/plamen/rules/phase4-confidence-scoring.md` for scoring model and anti-dilution rules.
 
 ### Loop Pseudocode (Orchestrator Executes This)
 
@@ -38,7 +38,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
   // â•â•â• PHASE 4a.5: Semantic Invariant Pre-Computation â•â•â•
   // Sonnet agent enumerates write sites, semantic invariants, conditional/sync/accumulation annotations
   // Produces {SCRATCHPAD}/semantic_invariants.md - consumed by depth-state-trace and Validation Sweep
-  // See CLAUDE.md Phase 4a.5 for full prompt template
+  // See AGENTS.md Phase 4a.5 for full prompt template
   spawn semantic_invariant_agent(model="sonnet", SCRATCHPAD, state_variables, function_list, source_files)
   await semantic_invariant_agent  // MUST complete before depth agents spawn (they consume its output)
 
@@ -49,7 +49,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
   // ALL OTHER SKIP REASONS ARE VIOLATIONS.
   // Runs AFTER semantic invariants, BEFORE depth agents. Provides concrete counterexamples
   // that depth agents can investigate (higher-quality evidence than static analysis alone).
-  // Read template from: ~/.claude/prompts/evm/phase4b-invariant-fuzz.md
+  // Read template from: ~/.codex/plamen/prompts/evm/phase4b-invariant-fuzz.md
   if file_exists(PROJECT_ROOT + "/foundry.toml") and semantic_invariants_has_content:
     spawn invariant_fuzz_agent(model="sonnet", SCRATCHPAD, PROJECT_ROOT, semantic_invariants, state_variables, function_list, contract_inventory)
     await invariant_fuzz_agent  // violations feed into depth agent input as [FUZZ-N] findings
@@ -139,7 +139,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
   // If missing â†’ add it before proceeding. This gate prevents orchestrator omission.
   // Spawn ALL 8 standard agents + niche agents in a SINGLE message as parallel Task calls
   // (4 depth + 3 blind spot scanners + 1 validation sweep + N niche agents)
-  // For each niche agent: read definition from ~/.claude/agents/skills/niche/{name}/SKILL.md, spawn as general-purpose
+  // For each niche agent: read definition from ~/.codex/plamen/agents/skills/niche/{name}/SKILL.md, spawn as general-purpose
   // Niche agents write to {SCRATCHPAD}/niche_{name}_findings.md
   //
   // â•â•â• MODEL DIVERSITY (MANDATORY - Thorough mode) â•â•â•
@@ -281,7 +281,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
         spawn niche_gap_filler(model="sonnet", prompt="
           You are a targeted gap-filler for {agent_name}. Analyze ONLY these entities
           that the original agent missed: {missing_entities}.
-          Apply the same methodology from ~/.claude/agents/skills/niche/{agent_name}/SKILL.md.
+          Apply the same methodology from ~/.codex/plamen/agents/skills/niche/{agent_name}/SKILL.md.
           Write to {SCRATCHPAD}/niche_{agent_name}_gaps.md
         ")
         depth_spawns_used += 1
@@ -326,7 +326,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
 
       Write to {SCRATCHPAD}/perturbation_findings.md
       Use finding IDs [PERT-1], [PERT-2]... Max 8 new findings.
-      Use standard finding format from ~/.claude/rules/finding-output-format.md.
+      Use standard finding format from ~/.codex/plamen/rules/finding-output-format.md.
 
       SCOPE: Write ONLY to your assigned output file. Return your findings and stop.
       Return: 'DONE: {P} perturbations tested, {N} new findings'
@@ -349,10 +349,10 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
       ## PART A: Standard Depth Skills
 
       Depth Agent -> Skill Mapping:
-        depth-token-flow -> ~/.claude/agents/skills/evm/token-flow-tracing/SKILL.md
-        depth-state-trace -> ~/.claude/agents/skills/evm/storage-layout-safety/SKILL.md
-        depth-edge-case -> ~/.claude/agents/skills/evm/zero-state-return/SKILL.md
-        depth-external -> ~/.claude/agents/skills/evm/external-precondition-audit/SKILL.md
+        depth-token-flow -> ~/.codex/plamen/agents/skills/evm/token-flow-tracing/SKILL.md
+        depth-state-trace -> ~/.codex/plamen/agents/skills/evm/storage-layout-safety/SKILL.md
+        depth-edge-case -> ~/.codex/plamen/agents/skills/evm/zero-state-return/SKILL.md
+        depth-external -> ~/.codex/plamen/agents/skills/evm/external-precondition-audit/SKILL.md
 
       For EACH depth agent:
       1. Read the skill file. Extract each numbered step, section, or CHECK.
@@ -385,7 +385,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
       ## PART C: Niche Agent Skills
 
       For each niche agent output file ({SCRATCHPAD}/niche_*_findings.md):
-      1. Read the niche skill definition from ~/.claude/agents/skills/niche/{name}/SKILL.md.
+      1. Read the niche skill definition from ~/.codex/plamen/agents/skills/niche/{name}/SKILL.md.
       2. Check each REQUIRED step for evidence in the niche agent output.
       3. Produce coverage table:
          | Niche Agent | Step | Evidence in Output? | Gap? |

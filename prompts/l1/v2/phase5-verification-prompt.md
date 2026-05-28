@@ -55,7 +55,7 @@ Full hypothesis source: `{hypotheses_path}` (this will be `{scratchpad}/findings
 
 ## Impact Premise Verification (MANDATORY — HARD GATE)
 
-> Reproduced verbatim from `~/.claude/rules/phase5-poc-execution.md`. Do not skip.
+> Reproduced verbatim from `~/.codex/plamen/rules/phase5-poc-execution.md`. Do not skip.
 
 Before writing the PoC, identify the finding's claimed HARM in one sentence — not the mechanism, but the consequence. The PoC MUST assert the HARM directly. A PoC that only proves a function can be called, a state can be reached, or a path exists is NOT a `[POC-PASS]` — it is a mechanism test, not a harm test.
 
@@ -237,7 +237,7 @@ Under NO circumstances is `[CODE-TRACE]` sufficient for CONFIRMED on a High/Crit
 **Verified**: {YES — re-ran PoC with fix applied and it no longer triggers / NO — fix not mechanically verified}
 ```
 
-> Suggested-fix rules reproduced from `~/.claude/rules/phase5-poc-execution.md`: only for mechanically-proven CONFIRMED findings; minimal diff — smallest change that eliminates the vulnerability; if non-trivial (architectural / multi-file), write `**Fix**: Architectural change required — {1-sentence description}. No inline diff provided.`; Go and Rust examples follow the standard diff format.
+> Suggested-fix rules reproduced from `~/.codex/plamen/rules/phase5-poc-execution.md`: only for mechanically-proven CONFIRMED findings; minimal diff — smallest change that eliminates the vulnerability; if non-trivial (architectural / multi-file), write `**Fix**: Architectural change required — {1-sentence description}. No inline diff provided.`; Go and Rust examples follow the standard diff format.
 
 ### Go fix example
 
@@ -264,7 +264,7 @@ Under NO circumstances is `[CODE-TRACE]` sufficient for CONFIRMED on a High/Crit
 
 ## MCP / tool timeout policy
 
-Reproduced from CLAUDE.md Rule 11: when an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls to that provider — switch immediately to fallback (code analysis, `grep`, WebSearch). You cannot cancel a pending call, but you control what happens after the error returns.
+Reproduced from AGENTS.md Rule 11: when an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls to that provider — switch immediately to fallback (code analysis, `grep`, WebSearch). You cannot cancel a pending call, but you control what happens after the error returns.
 
 If scip-go / rust-analyzer scip is unavailable, fall back to grep + manual file reads; record `[LSP-UNAVAILABLE]` next to the `[CODE-TRACE]` tag.
 

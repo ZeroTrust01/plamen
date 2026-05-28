@@ -81,4 +81,4 @@ Before ANY verdict:
 4. **Confidence Gate**: Uncertain? → CONTESTED, not REFUTED. Only REFUTED if defense proven with production evidence
 5. **Enabler Search**: Before REFUTED, ask "Does ANY other finding enable this?"
 
-Reference: `~/.claude/prompts/{LANGUAGE}/generic-security-rules.md` for full rule definitions. The orchestrator resolves `{LANGUAGE}` before spawning you.
+Reference: `~/.codex/plamen/prompts/{LANGUAGE}/generic-security-rules.md` for full rule definitions. The orchestrator resolves `{LANGUAGE}` before spawning you.

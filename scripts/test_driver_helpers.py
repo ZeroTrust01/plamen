@@ -235,9 +235,9 @@ def test_A1c_ai_model_summary_light_mode_collapses_to_sonnet():
         D.Phase("depth", [], [], 60, model="opus"),
         D.Phase("report", [], [], 60, model="haiku"),
     ]
-    summary = D._format_ai_model_summary({"cli_backend": "claude"}, phases, "light")
-    check("A1c AI model summary light mode uses only sonnet",
-          summary == "Claude Code / sonnet",
+    summary = D._format_ai_model_summary({"cli_backend": "codex"}, phases, "light")
+    check("A1c AI model summary light mode uses only Codex sonnet tier",
+          summary == "Codex CLI / gpt-5.4",
           repr(summary))
 
 
@@ -343,8 +343,8 @@ def test_A1_zero_citations_overall_fails():
     root = _mkrepo(files)
     sp = _mkscratch({"attack_surface.md": "no file refs here at all\n"})
     issues = D._validate_recon_coverage(sp, str(root), "l1")
-    check("A1 zero citations emits its own issue",
-          any("zero file-path citations" in s for s in issues),
+    check("A1 zero citations still flags uncovered modules",
+          any("no file cited" in s for s in issues),
           repr(issues))
 
 
@@ -1894,31 +1894,31 @@ def test_A3_sc_phase_order_has_attention_repair_before_rag_and_chain():
           repr(names))
 
 
-def test_M1_opus_alias_pins_to_46():
+def test_M1_opus_alias_resolves_to_codex_opus_tier():
     phase = D.Phase("depth", [], [], base_timeout_s=1, model="opus")
-    check("M1 bare opus resolves to claude-opus-4-6",
-          D.phase_model(phase, "thorough") == "claude-opus-4-6",
+    check("M1 bare opus resolves to Codex opus tier",
+          D.phase_model(phase, "thorough") == "gpt-5.5",
           D.phase_model(phase, "thorough"))
 
 
 def test_M2_light_mode_still_forces_sonnet():
     phase = D.Phase("depth", [], [], base_timeout_s=1, model="opus")
     check("M2 light mode forces sonnet despite opus phase",
-          D.phase_model(phase, "light") == "sonnet",
+          D.phase_model(phase, "light") == "gpt-5.4",
           D.phase_model(phase, "light"))
 
 
 def test_M3_l1_verify_shards_are_cost_capped():
     phases = {p.name: p for p in D.L1_PHASES}
     for name in D.L1_VERIFY_PHASE_NAMES:
-        check(f"M3 L1 {name} uses sonnet",
-              D.phase_model(phases[name], "thorough") == "sonnet",
+        check(f"M3 L1 {name} uses Codex sonnet tier",
+              D.phase_model(phases[name], "thorough") == "gpt-5.4",
               D.phase_model(phases[name], "thorough"))
-    check("M3 L1 verify_queue stays haiku",
-          D.phase_model(phases["verify_queue"], "thorough") == "haiku",
+    check("M3 L1 verify_queue stays Codex haiku tier",
+          D.phase_model(phases["verify_queue"], "thorough") == "gpt-5.4-mini",
           D.phase_model(phases["verify_queue"], "thorough"))
-    check("M3 L1 verify_aggregate stays haiku",
-          D.phase_model(phases["verify_aggregate"], "thorough") == "haiku",
+    check("M3 L1 verify_aggregate stays Codex haiku tier",
+          D.phase_model(phases["verify_aggregate"], "thorough") == "gpt-5.4-mini",
           D.phase_model(phases["verify_aggregate"], "thorough"))
 
 
@@ -2831,7 +2831,7 @@ def main():
         test_A3_semantic_dedup_candidate_packet_is_bounded,
         test_A3_semantic_dedup_prompt_is_fail_open_and_bounded,
         test_A3_sc_phase_order_has_attention_repair_before_rag_and_chain,
-        test_M1_opus_alias_pins_to_46,
+        test_M1_opus_alias_resolves_to_codex_opus_tier,
         test_M2_light_mode_still_forces_sonnet,
         test_M3_l1_verify_shards_are_cost_capped,
         test_M4_l1_verify_shards_are_severity_weighted,
@@ -2866,7 +2866,11 @@ def main():
     print(f"Running {len(tests)} helper smoke tests...")
     for t in tests:
         print(f"\n[{t.__name__}]")
-        t()
+        if "tmp_path" in getattr(t, "__annotations__", {}) or "tmp_path" in t.__code__.co_varnames[:t.__code__.co_argcount]:
+            with tempfile.TemporaryDirectory(prefix="plamen_test_") as d:
+                t(Path(d))
+        else:
+            t()
     print(f"\n{'=' * 48}")
     print(f"  PASS: {PASS}   FAIL: {FAIL}")
     print('=' * 48)

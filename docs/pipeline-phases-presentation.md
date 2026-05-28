@@ -1,7 +1,7 @@
 # Plamen V2 Pipeline — Phase-by-Phase Reference
 
 > 40+ phases, executed sequentially by `plamen_driver.py`.
-> Each phase launches one `claude -p` subprocess, validates artifacts on exit, retries once on failure.
+> Each phase launches one `codex exec` subprocess, validates artifacts on exit, retries once on failure.
 > Checkpoint after every phase enables crash-resume.
 
 ---
@@ -37,7 +37,7 @@ Reads recon artifacts (especially `template_recommendations.md` and `contract_in
 ### `breadth` — Parallel Breadth Analysis
 **Model**: sonnet | **Timeout**: 60min | **Critical**: yes
 
-The LLM subprocess spawns 5-9 parallel subagents (via Claude Code's Task tool), each covering a different domain of the codebase — core state, access control, token flow, external interactions, economic design, etc. Each agent reads source files directly, applies the generic security rules and any injected skills from the spawn manifest, and writes its findings to a separate `analysis_*.md` file. The driver gate checks that at least 3 analysis files were produced with substantial content. This is a wide-net discovery phase — it sacrifices depth for coverage, casting as many eyes on the code as the budget allows.
+The LLM subprocess spawns 5-9 parallel subagents (via Codex CLI's Task tool), each covering a different domain of the codebase — core state, access control, token flow, external interactions, economic design, etc. Each agent reads source files directly, applies the generic security rules and any injected skills from the spawn manifest, and writes its findings to a separate `analysis_*.md` file. The driver gate checks that at least 3 analysis files were produced with substantial content. This is a wide-net discovery phase — it sacrifices depth for coverage, casting as many eyes on the code as the budget allows.
 
 **Produces**: `analysis_*.md` (3-9 files, one per breadth agent)
 
@@ -308,7 +308,7 @@ Each layer REDUCES uncertainty for the next. Breadth produces noisy candidates. 
 ## Under the Hood: Driver Mechanics
 
 ### Subprocess Isolation
-Each phase runs as `claude -p --model {model}` with file-based stdin (not pipes — prevents deadlocks on Windows). A `_subprocess_isolation.json` settings overlay disables all plugins, hooks, and MCP servers to prevent startup hangs from network-dependent plugin sync. Only `rag_sweep` gets MCP access restored. The subprocess receives ONLY its phase-specific prompt section — no forward references to future phases, no routing tables for other phases.
+Each phase runs as `codex exec --model {model}` with file-based stdin (not pipes — prevents deadlocks on Windows). A `_subprocess_isolation.json` settings overlay disables all plugins, hooks, and MCP servers to prevent startup hangs from network-dependent plugin sync. Only `rag_sweep` gets MCP access restored. The subprocess receives ONLY its phase-specific prompt section — no forward references to future phases, no routing tables for other phases.
 
 ### Checkpoint & Resume
 After every successful phase, `_v2_checkpoint.json` is atomically updated (write to `.tmp` then `os.replace()` — atomic on POSIX, same-volume on Windows). On crash or rate-limit exhaustion, `python plamen_driver.py config.json` auto-resumes from the last completed phase. The checkpoint tracks: `completed` (phases done), `degraded` (phases that failed and were skipped), `rate_limited_at` (timestamp if paused for rate limit).

@@ -39,7 +39,7 @@
 
 For Aptos and Sui audits, the 4 always-required skills (ABILITY_ANALYSIS, BIT_SHIFT_SAFETY, TYPE_SAFETY, REF_LIFECYCLE/OBJECT_OWNERSHIP) total ~900-950 lines — far exceeding the 300-line breadth agent cap. These are split into two delivery layers:
 
-1. **Core directives** (~130 lines): Loaded into EVERY breadth agent via `~/.claude/agents/skills/{LANGUAGE}/move-safety-core-directives/SKILL.md`. Contains inventory greps + flag tables. Counts toward the 300-line cap but leaves ~170 lines for conditional skills.
+1. **Core directives** (~130 lines): Loaded into EVERY breadth agent via `~/.codex/plamen/agents/skills/{LANGUAGE}/move-safety-core-directives/SKILL.md`. Contains inventory greps + flag tables. Counts toward the 300-line cap but leaves ~170 lines for conditional skills.
 2. **Move-Safety Agent** (1 dedicated agent): Spawned in Phase 3 alongside breadth agents. Loads ALL 4 full skill files (~950 lines). Runs the complete trace methodology that breadth agents cannot fit. Costs 1 breadth agent slot.
 
 The Move-Safety Agent prompt: load all 4 always-required SKILLs into a single agent with scope = "full Move-specific safety analysis." It is a breadth producer and MUST write exactly one first-pass analysis file, `analysis_move_safety.md`. Its findings feed into `findings_inventory.md` because inventory reads `analysis_*.md`; it must not write `findings_inventory.md` directly. Depth agents still receive full skills per their injection rules (depth agents have separate context windows, not subject to the breadth merge cap).
@@ -51,7 +51,7 @@ The Move-Safety Agent prompt: load all 4 always-required SKILLs into a single ag
 ## Step 2b: Instantiate Templates
 
 For each template marked `Required? = YES` in `template_recommendations.md`:
-1. Read template from `~/.claude/agents/skills/{LANGUAGE}/{template-name}/SKILL.md` (folder name is lowercase-hyphenated version of the template name, e.g., ORACLE_ANALYSIS -> oracle-analysis)
+1. Read template from `~/.codex/plamen/agents/skills/{LANGUAGE}/{template-name}/SKILL.md` (folder name is lowercase-hyphenated version of the template name, e.g., ORACLE_ANALYSIS -> oracle-analysis)
 2. For Aptos/Sui breadth agents: load `move-safety-core-directives/SKILL.md` instead of the 4 individual always-required skills. The full skills go to the Move-Safety Agent only.
 3. Replace `{PLACEHOLDERS}` with instantiation parameters
 4. **Conditional loading**: Strip sections wrapped in `<!-- LOAD_IF: FLAG -->...<!-- END_LOAD_IF: FLAG -->` when the flag was NOT detected
@@ -62,7 +62,7 @@ For each template marked `Required? = YES` in `template_recommendations.md`:
 ## Step 2b.1: Load Injectable Skills (Append-Only Delivery)
 
 1. Read protocol type from `{scratchpad}/template_recommendations.md` -> `## Injectable Skills`
-2. For each recommended injectable: Read from `~/.claude/agents/skills/injectable/{skill-name}/SKILL.md`
+2. For each recommended injectable: Read from `~/.codex/plamen/agents/skills/injectable/{skill-name}/SKILL.md`
 3. **Breadth agents**: Extract ONLY section headers + key questions (1-line per section, ~200 tokens max)
 4. **Depth agents (Phase 4b)**: Append the relevant skill methodology to the existing assigned depth-agent prompt.
 5. Injectable skills do NOT spawn dedicated agents. The spawn manifest must record which existing agent received each injectable skill.
@@ -77,7 +77,7 @@ For each template marked `Required? = YES` in `template_recommendations.md`:
 For each planned breadth agent:
   combined_lines = 0
   For each SKILL.md assigned to this agent:
-    line_count = wc -l ~/.claude/agents/skills/{LANGUAGE}/{skill-name}/SKILL.md
+    line_count = wc -l ~/.codex/plamen/agents/skills/{LANGUAGE}/{skill-name}/SKILL.md
     combined_lines += line_count
   ASSERT: combined_lines <= 300
   If FAIL:
@@ -126,7 +126,7 @@ SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agent
 
 Every agent prompt that makes MCP tool calls (recon agents, depth agents, chain agents, verifiers, RAG sweep) MUST include this directive at the end of its prompt:
 
-*"When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record [MCP: TIMEOUT] and skip ALL remaining calls to that provider — switch immediately to fallback (code analysis, grep, WebSearch). Claude Code's tool timeout is set to 300s (5 min) via MCP_TOOL_TIMEOUT in settings.json to accommodate ChromaDB cold start. You cannot cancel a pending call — but you control what happens after the error returns."*
+*"When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record [MCP: TIMEOUT] and skip ALL remaining calls to that provider — switch immediately to fallback (code analysis, grep, WebSearch). Codex CLI's tool timeout is set to 300s (5 min) via MCP_TOOL_TIMEOUT in settings.json to accommodate ChromaDB cold start. You cannot cancel a pending call — but you control what happens after the error returns."*
 
 The orchestrator MUST append this text when composing prompts for MCP-calling agents. Agents that do not make MCP calls (pure code analysis breadth agents, report writers) do not need it.
 

@@ -8,7 +8,7 @@
 
 ## File Map (for all subagents)
 
-### Python Runtime (~/.claude/scripts\)
+### Python Runtime (~/.codex/plamen/scripts\)
 | File | Lines | Responsibility |
 |------|-------|---------------|
 | `plamen_driver.py` | 2612 | Main loop, subprocess launch, checkpoint, retry, phase orchestration |
@@ -20,7 +20,7 @@
 | `plamen_display.py` | 1136 | TUI rendering, interactive prompts, progress tracking |
 | `test_*.py` (36 files) | 22046 | Unit and integration tests |
 
-### Methodology (~/.claude/commands\)
+### Methodology (~/.codex/plamen/commands\)
 | File | Lines | Responsibility |
 |------|-------|---------------|
 | `plamen.md` | 1254 | V1 SC orchestrator prompt (read by V2 phases as methodology source) |
@@ -28,10 +28,10 @@
 | `plamen-wizard.md` | 258 | V2 SC entry point |
 | `plamen-l1-wizard.md` | 288 | V2 L1 entry point |
 
-### Rules (~/.claude/rules\) — 10 files, all loaded via CLAUDE.md
-### V2 Prompt Templates (~/.claude/prompts\shared\v2\) — 37 files, ~3500 lines total
-### Language-Specific Prompts (~/.claude/prompts\{evm,solana,aptos,sui,soroban,l1}\) — ~12 files per tree
-### Agent Definitions (~/.claude/agents\) — 8 files (6 depth + security-analyzer + security-verifier)
+### Rules (~/.codex/plamen/rules\) — 10 files, all loaded via AGENTS.md
+### V2 Prompt Templates (~/.codex/plamen/prompts\shared\v2\) — 37 files, ~3500 lines total
+### Language-Specific Prompts (~/.codex/plamen/prompts\{evm,solana,aptos,sui,soroban,l1}\) — ~12 files per tree
+### Agent Definitions (~/.codex/plamen/agents\) — 8 files (6 depth + security-analyzer + security-verifier)
 ### Skills — 140 SKILL.md files across 5 language trees + 9 niche + 30 injectable (including 16 L1)
 
 ---
@@ -46,7 +46,7 @@ Spawn ALL 10 subagents in parallel. Each writes findings to `{SCRATCHPAD}/audit_
 
 **Scope**: Overall system design, ownership boundaries, single-source-of-truth violations, layering
 
-**Read**: `plamen_driver.py` (full), `plamen_types.py` (full), `CLAUDE.md`, `orchestrator-rules.md`, `plamen-wizard.md`, `plamen-l1-wizard.md`
+**Read**: `plamen_driver.py` (full), `plamen_types.py` (full), `AGENTS.md`, `orchestrator-rules.md`, `plamen-wizard.md`, `plamen-l1-wizard.md`
 
 **Audit dimensions**:
 
@@ -71,7 +71,7 @@ Spawn ALL 10 subagents in parallel. Each writes findings to `{SCRATCHPAD}/audit_
 
 5. **Circular dependency / import structure**: Map the import graph between plamen_*.py modules. Are there circular imports? Are there imports that could be avoided by restructuring? Is the module boundary clean (types→parsers→validators→mechanical→prompt→driver→display)?
 
-6. **Configuration sprawl**: How many places define "what mode X does"? The AUDIT MODES table in orchestrator-rules.md, the phase definitions in plamen_types.py, the V1 prompt, the V2 prompt templates, CLAUDE.md — do they all agree? Find contradictions.
+6. **Configuration sprawl**: How many places define "what mode X does"? The AUDIT MODES table in orchestrator-rules.md, the phase definitions in plamen_types.py, the V1 prompt, the V2 prompt templates, AGENTS.md — do they all agree? Find contradictions.
 
 **Output format**: Write to `audit_architecture.md`. For each finding:
 ```
@@ -522,7 +522,7 @@ Spawn ALL 10 subagents in parallel. Each writes findings to `{SCRATCHPAD}/audit_
    - Checkpoint: is save/load/resume tested?
    - Cross-platform: are Windows-specific paths tested?
    - Interactive prompts: are the TUI functions tested?
-   - Subprocess launch: is the actual `claude -p` invocation tested (or just the prompt building)?
+   - Subprocess launch: is the actual `codex exec` invocation tested (or just the prompt building)?
    - Report assembly: is the mechanical assembler tested?
 
 5. **Test-to-code ratio analysis**: 

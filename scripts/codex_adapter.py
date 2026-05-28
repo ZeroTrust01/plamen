@@ -2,8 +2,8 @@
 """
 Codex Adapter Generator
 
-Reads Plamen's Claude-side manifests and generates Codex-compatible config files.
-This prevents drift -- when Claude-side files change, re-running this script
+Reads Plamen's methodology manifests and generates Codex-compatible config files.
+This prevents drift -- when methodology files change, re-running this script
 updates the Codex files automatically.
 
 Usage:
@@ -16,20 +16,20 @@ Sources:
     - scripts/plamen_types.py       (phase/artifact specs)
     - settings.json.example        (MCP server configs, permissions)
     - mcp.json.example             (MCP server definitions)
-    - CLAUDE.md                    (orchestrator rules)
+    - AGENTS.md                    (Codex orchestrator rules)
     - agents/depth-*.md            (agent role definitions)
 
 NOTE: Phase 1 generator. Most output content is templated, not fully derived
-from Claude-side manifests. The following IS manifest-driven:
+from methodology manifests. The following IS manifest-driven:
   - config.toml MCP servers (from mcp.json.example)
   - Phase sequence (from plamen_types.py SC_PHASES/L1_PHASES)
   - Agent role file list (from agents/depth-*.md listing)
-The following is TEMPLATED and must be updated manually if Claude-side changes:
+The following is TEMPLATED and must be updated manually if methodology changes:
   - AGENTS.md orchestrator rules
   - SKILL.md phase sequence
   - Agent role developer_instructions
 
-Phase 2 goal: derive more content from CLAUDE.md and commands/plamen.md parsing.
+Phase 2 goal: derive more content from AGENTS.md and commands/plamen.md parsing.
 """
 
 import json
@@ -98,7 +98,7 @@ def _windows_inherited_env() -> dict[str, str]:
 def generate_agents_md(out_dir: Path) -> None:
     """Generate codex-adapter/AGENTS.md -- condensed orchestrator rules for Codex."""
     content = textwrap.dedent("""\
-    # Plamen -- Web3 Security Auditing Agent
+    # Plamen -- Web3 Security Auditing Agent (v2.0.2)
 
     You are **Plamen**, an autonomous Web3 security auditing agent running inside Codex.
     Your methodology, prompts, and skill files live in `~/.codex/plamen/`.
@@ -136,9 +136,17 @@ def generate_agents_md(out_dir: Path) -> None:
     10. **MCP TIMEOUT POLICY** -- Agents that call MCP tools must NOT retry on timeout.
         Record `[MCP: TIMEOUT]` and switch to fallback.
 
+    ## Hard Rule
+
+    Do not manually orchestrate Plamen phases. Do not spawn recon, breadth,
+    depth, verification, or report agents yourself. The Python driver
+    (`plamen_driver.py`) is the sole owner of phase sequencing.
+
+    For new Codex launches, `config.json` must set `"cli_backend": "codex"`.
+
     ## Phase Sequence
 
-    Follow the phase sequence defined in `scripts/plamen_types.py` (`SC_PHASES`/`L1_PHASES`):
+    Follow the phase graph defined in the V2 driver's `plamen_types.py`:
 
     ```
     Recon (1) -> Breadth (2) -> Inventory (3) -> [Re-scan (4)] -> [Per-contract (5)]
@@ -147,7 +155,7 @@ def generate_agents_md(out_dir: Path) -> None:
     ```
 
     Phases in brackets are mode-dependent. Each phase has required artifacts that
-    MUST exist before proceeding to the next phase (enforced by `plamen_driver.py` gate checks).
+    MUST exist before proceeding to the next phase (enforced by the V2 driver's artifact gates).
 
     ## File References
 
@@ -169,16 +177,9 @@ def generate_agents_md(out_dir: Path) -> None:
 
     ## Path Resolution (MANDATORY)
 
-    All methodology files reference paths starting with `~/.claude/`.
-    On Codex, these paths resolve to `~/.codex/plamen/` instead.
-
-    When you see ANY path starting with `~/.claude/`:
-    - Replace `~/.claude/` with `~/.codex/plamen/`
-    - Example: `~/.claude/agents/skills/evm/token-flow-tracing/SKILL.md`
-      becomes `~/.codex/plamen/agents/skills/evm/token-flow-tracing/SKILL.md`
-
-    This applies to ALL file reads throughout the audit -- in methodology files,
-    skill files, prompt templates, agent definitions, and any cross-references.
+    All methodology files, prompt templates, agent definitions, and skill files
+    use Codex-native paths rooted at `~/.codex/plamen/`. Treat any other Plamen
+    methodology root as stale and resolve reads through `~/.codex/plamen/`.
 
     ## Agent Roles
 
@@ -277,7 +278,7 @@ def generate_config_toml(out_dir: Path) -> None:
         elif command == "slither-mcp":
             command = slither_bin
 
-        # Resolve npx/node to absolute paths from user's Claude mcp.json
+        # Resolve npx/node to absolute paths for Codex subprocesses.
         # Bare "npx" inside Codex sandbox can't find the local npm cache
         if command in ("npx", "node"):
             resolved = shutil.which(command)
@@ -861,7 +862,7 @@ def generate_agent_tomls(out_dir: Path) -> None:
 
 def generate_skill_md(out_dir: Path) -> None:
     """Generate codex-adapter/skills/plamen/SKILL.md -- the /plamen orchestrator skill for Codex."""
-    scripts_dir = str(Path.home() / ".codex" / "plamen" / "scripts").replace("\\", "\\\\")
+    scripts_dir = "~/.codex/plamen/scripts"
     content = textwrap.dedent(f"""\
     ---
     name: plamen
@@ -878,9 +879,9 @@ def generate_skill_md(out_dir: Path) -> None:
 
     Do not manually orchestrate Plamen phases. Do not spawn recon, breadth,
     depth, verification, or report agents yourself. The Python driver is the
-    sole owner of phase sequencing for both Claude and Codex routes.
+    sole owner of phase sequencing for Codex runs.
 
-    Your job is the same job as the Claude `/plamen` command wizard:
+    Your job is the Codex `/plamen` command wizard:
 
     1. Detect an existing audit and offer resume/fresh/new.
     2. Collect missing launch parameters.
@@ -919,20 +920,20 @@ def generate_skill_md(out_dir: Path) -> None:
     - `cli_backend`: `codex`
 
     Do not ask a model-selection question from this skill. The user is already
-    running inside the model/backend they chose.
+    running inside the model/runtime they chose.
 
     ## Driver Commands
 
     Codex route:
 
-    ```
-    python {scripts_dir}\\plamen_driver.py "{{CONFIG_PATH}}"
+    ```bash
+    python {scripts_dir}/plamen_driver.py "{{CONFIG_PATH}}"
     ```
 
     Fresh restart:
 
-    ```
-    python {scripts_dir}\\plamen_driver.py --fresh "{{CONFIG_PATH}}"
+    ```bash
+    python {scripts_dir}/plamen_driver.py --fresh "{{CONFIG_PATH}}"
     ```
     """)
 
@@ -1174,7 +1175,7 @@ def generate_skill_md(out_dir: Path) -> None:
 
     ## Mode Support Status
 
-    Not all Claude pipeline features have full Codex parity yet. This table
+    Some Thorough-only features are still experimental on Codex. This table
     shows what is supported, what is experimental, and what is not yet implemented.
 
     | Phase | Light | Core | Thorough | Notes |
@@ -1192,7 +1193,7 @@ def generate_skill_md(out_dir: Path) -> None:
     | RAG Sweep | N/A | Supported | Supported | Fallback chain may differ |
     | Chain Analysis | Supported | Supported | Supported | |
     | Verification + PoC | Supported | Supported | Experimental | No fuzz variant support |
-    | Skeptic-Judge | N/A | N/A | Not implemented | Requires Claude pipeline feature |
+    | Skeptic-Judge | N/A | N/A | Not implemented | Needs Codex adaptation |
     | Invariant Fuzz | N/A | N/A | Not implemented | Foundry-specific, needs adaptation |
     | Medusa Fuzz | N/A | N/A | Not implemented | Parallel campaign, needs adaptation |
     | Design Stress Test | N/A | N/A | Experimental | 1 agent slot, untested |
@@ -1228,7 +1229,7 @@ def generate_commands(out_dir: Path) -> None:
     """Generate codex-adapter/commands/plamen*.md for Codex slash-command discovery."""
     commands_dir = out_dir / "commands"
     commands_dir.mkdir(parents=True, exist_ok=True)
-    driver_path = str(Path.home() / ".codex" / "plamen" / "scripts" / "plamen_driver.py").replace("\\", "\\\\")
+    driver_path = "~/.codex/plamen/scripts/plamen_driver.py"
 
 
     commands = {
@@ -1272,13 +1273,13 @@ def generate_commands(out_dir: Path) -> None:
         Do not manually orchestrate Plamen phases and do not spawn audit agents yourself.
         Launch only the shared Python driver:
 
-        ```
+        ```bash
         python {driver_path} "{{CONFIG_PATH}}"
         ```
 
         Fresh restart:
 
-        ```
+        ```bash
         python {driver_path} --fresh "{{CONFIG_PATH}}"
         ```
         """)
@@ -1297,15 +1298,15 @@ def generate_readme(out_dir: Path) -> None:
     content = textwrap.dedent("""\
     # Plamen Codex Adapter
 
-    This directory contains Codex-compatible configuration files generated from the
-    Plamen audit pipeline's Claude-side manifests. These files allow Plamen to run
-    inside the [Codex CLI](https://github.com/openai/codex) in addition to Claude Code.
+    This directory contains Codex-compatible configuration files generated for the
+    Plamen audit pipeline. These files allow Plamen to run inside the
+    [Codex CLI](https://github.com/openai/codex).
 
     ## Installation
 
     ```bash
     # From the Plamen repo directory:
-    plamen install --codex
+    plamen install
 
     # Or manually:
     python scripts/codex_adapter.py
@@ -1332,8 +1333,8 @@ def generate_readme(out_dir: Path) -> None:
 
     ### What is shared (via symlink)
 
-    The Plamen methodology files are shared between Claude Code and Codex via a
-    symlink at `~/.codex/plamen/` pointing to the Plamen repo. This includes:
+    The Plamen methodology files are shared with Codex via a symlink at
+    `~/.codex/plamen/` pointing to the Plamen repo. This includes:
 
     - `prompts/` -- language-specific phase prompts (recon, inventory, depth, verification)
     - `agents/` -- depth agent definitions and skill files
@@ -1349,8 +1350,7 @@ def generate_readme(out_dir: Path) -> None:
 
     ### Regenerating
 
-    If you update Claude-side files (CLAUDE.md, mcp.json.example,
-    agent definitions), regenerate the Codex files:
+    If you update methodology files or agent definitions, regenerate the Codex files:
 
     ```bash
     python scripts/codex_adapter.py
@@ -1359,13 +1359,13 @@ def generate_readme(out_dir: Path) -> None:
     ## Current Limitations
 
     - **Phase 1 generator**: Most adapter output content is templated, not fully
-      derived from Claude-side manifests. MCP servers (from mcp.json.example)
+      derived from methodology manifests. MCP servers (from mcp.json.example)
       and agent role file lists (from agents/depth-*.md) are manifest-driven.
       AGENTS.md orchestrator rules, SKILL.md phase sequence, and agent
       developer_instructions are templated and must be updated manually when
-      Claude-side files change. Phase 2 goal is to derive more content from
-      CLAUDE.md and commands/plamen.md parsing.
-    - **Model**: Codex uses `gpt-5.3-codex` (272K context) vs Claude Code's Opus (1M context).
+      methodology files change. Phase 2 goal is to derive more content from
+      AGENTS.md and commands/plamen.md parsing.
+    - **Model**: Codex default context can be smaller than historical Opus runs.
       Thorough mode may require more careful context management.
     - **Thorough mode parity**: Several Thorough-only features are experimental or
       not yet implemented on Codex. See the Mode Support Status table in
@@ -1412,7 +1412,7 @@ def main():
     print()
     print("Next steps:")
     print(f"  1. Review generated files in {out_dir.relative_to(PLAMEN_HOME)}/")
-    print("  2. Run 'plamen install --codex' to install into ~/.codex/")
+    print("  2. Run 'plamen install' to install into ~/.codex/")
     print("  3. Replace API key placeholders in config.toml")
 
 

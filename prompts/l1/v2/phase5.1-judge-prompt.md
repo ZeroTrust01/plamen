@@ -30,7 +30,7 @@ either side — you re-apply the L1 severity matrix independently and state
 the final severity.
 
 > **Mode gate**: Thorough mode only. Invoked ONLY when the skeptic DISAGREEd.
-> **Reference matrix**: `~/.claude/docs/l1-mode/severity-matrix.md` (canonical).
+> **Reference matrix**: `~/.codex/plamen/docs/l1-mode/severity-matrix.md` (canonical).
 >   The matrix embedded below is the authoritative copy for this agent.
 
 ## FIRST ACTION

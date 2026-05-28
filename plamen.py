@@ -2,7 +2,7 @@
 """Plamen — Web3 Security Auditor CLI wrapper.
 
 Renders the startup UI in the user's real terminal, collects inputs
-via arrow-key selection menus, then hands off to Claude Code.
+via arrow-key selection menus, then hands off to the Codex driver.
 """
 import sys, os, shutil, glob, subprocess, re, sqlite3
 
@@ -88,7 +88,8 @@ from InquirerPy.utils import InquirerPyStyle
 
 # ── Paths ───────────────────────────────────────────────────
 # PLAMEN_HOME: where the Plamen repo actually lives (resolves through symlinks)
-# CLAUDE_HOME: where Claude Code reads config from (always ~/.claude)
+# CLAUDE_HOME is retained only for legacy migration helpers. The
+# active runtime path is Codex-only via ~/.codex/plamen.
 PLAMEN_HOME = os.path.dirname(os.path.realpath(__file__))
 CLAUDE_HOME = os.path.expanduser("~/.claude")
 
@@ -105,30 +106,27 @@ VERSION = _read_version()
 
 
 def _check_claude_md_version():
-    """Warn if ~/.claude/CLAUDE.md has a stale Plamen injection (different version)."""
-    claude_md = os.path.join(CLAUDE_HOME, "CLAUDE.md")
-    if not os.path.isfile(claude_md):
+    """Warn if ~/.codex/AGENTS.md has a stale Plamen injection."""
+    agents_md = os.path.normpath(os.path.expanduser("~/.codex/AGENTS.md"))
+    if not os.path.isfile(agents_md):
         return  # not installed yet
     try:
-        with open(claude_md, "r", encoding="utf-8") as f:
+        with open(agents_md, "r", encoding="utf-8") as f:
             content = f.read()
     except OSError:
         return
-    # Look for version in the injected Plamen section
-    marker = "<!-- PLAMEN:START"
-    if marker not in content:
-        return  # no injection found
-    injected = content[content.index(marker):]
-    # Extract version from "# Plamen - Security Auditor (vX.Y.Z)"
+    # Extract version from either generated Codex title form.
     import re
-    m = re.search(r"Security Auditor \(v([0-9]+\.[0-9]+\.[0-9]+)\)", injected)
+    m = re.search(r"Security Auditing Agent \(v([0-9]+\.[0-9]+\.[0-9]+)\)", content)
+    if not m:
+        m = re.search(r"Security Auditor \(v([0-9]+\.[0-9]+\.[0-9]+)\)", content)
     if not m:
         return
     injected_ver = m.group(1)
     if injected_ver != VERSION:
         w = sys.stdout.write
         w(f"\n  \033[33m⚠ Version mismatch: repo is v{VERSION} but "
-          f"~/.claude/CLAUDE.md has v{injected_ver}\033[0m\n")
+          f"~/.codex/AGENTS.md has v{injected_ver}\033[0m\n")
         w(f"  \033[90m  Run 'plamen install' to update. Pipeline may behave "
           f"incorrectly until then.\033[0m\n\n")
 
@@ -296,14 +294,6 @@ def _find_bin(name: str, extra_paths: list = None) -> str:
     return ""
 
 
-def _find_claude_bin() -> str:
-    """Find Claude Code CLI, honoring explicit override env first."""
-    explicit = os.environ.get("CLAUDE_BIN", "").strip()
-    if explicit:
-        return explicit
-    return _find_bin("claude")
-
-
 def _find_codex_bin() -> str:
     """Find Codex CLI, honoring explicit override env first."""
     explicit = os.environ.get("CODEX_BIN", "").strip()
@@ -313,28 +303,16 @@ def _find_codex_bin() -> str:
 
 
 def _detect_cli_backends() -> list[str]:
-    """Return installed AI runtimes in stable preference order."""
+    """Return installed AI runtimes. Codex is the only supported runtime."""
     backends: list[str] = []
-    if _find_claude_bin():
-        backends.append("claude")
     if _find_codex_bin():
         backends.append("codex")
     return backends
 
 
 def _ambient_backend(backends: list[str]) -> str:
-    """Pick the backend implied by the current command/model context."""
-    forced = os.environ.get("PLAMEN_CLI_BACKEND", "").strip().lower()
-    if forced in ("claude", "codex"):
-        return forced
-    if "codex" in backends and (
-        os.environ.get("CODEX_HOME")
-        or os.environ.get("CODEX_SANDBOX")
-    ):
-        return "codex"
-    if "claude" in backends:
-        return "claude"
-    return backends[0] if backends else "claude"
+    """Pick the active backend. Codex-only first pass."""
+    return "codex" if "codex" in backends else "codex"
 
 
 def _skip_backend_prompt() -> bool:
@@ -346,20 +324,14 @@ def _skip_backend_prompt() -> bool:
 
 def _wizard_model_summary(backend: str, mode: str = "") -> str:
     """Short model line for the launch summary."""
-    backend = (backend or "claude").strip().lower()
     mode = (mode or "").strip().lower()
-    if backend == "codex":
-        sonnet = os.environ.get("PLAMEN_CODEX_SONNET_MODEL", "gpt-5.4").strip()
-        if mode == "light":
-            return f"Codex CLI / {sonnet}"
-        opus = os.environ.get("PLAMEN_CODEX_OPUS_MODEL", "gpt-5.5").strip()
-        haiku = os.environ.get("PLAMEN_CODEX_HAIKU_MODEL", "gpt-5.4-nano").strip()
-        haiku_label = "nano" if haiku == "gpt-5.4-nano" else haiku
-        return f"Codex CLI / {opus}, {sonnet}, {haiku_label}"
+    sonnet = os.environ.get("PLAMEN_CODEX_SONNET_MODEL", "gpt-5.4").strip()
     if mode == "light":
-        return "Claude Code / sonnet"
-    opus = os.environ.get("PLAMEN_OPUS_MODEL", "claude-opus-4-6").strip()
-    return f"Claude Code / {opus}, sonnet, haiku"
+        return f"Codex CLI / {sonnet}"
+    opus = os.environ.get("PLAMEN_CODEX_OPUS_MODEL", "gpt-5.5").strip()
+    haiku = os.environ.get("PLAMEN_CODEX_HAIKU_MODEL", "gpt-5.4-nano").strip()
+    haiku_label = "nano" if haiku == "gpt-5.4-nano" else haiku
+    return f"Codex CLI / {opus}, {sonnet}, {haiku_label}"
 
 
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
@@ -539,9 +511,8 @@ def check_dependencies() -> bool:
     ok = True
 
     # ── Probe all tools ─────────────────────────────────────
-    backends = _detect_cli_backends()
     required = [
-        ("claude/codex",  backends[0] if backends else ""),
+        ("codex",   _find_codex_bin()),
         ("python",  _find_bin("python", _python_extra_paths()) or _find_bin("python3")),
         ("npx",     _find_bin("npx")),
         ("npm",     _find_bin("npm")),
@@ -619,11 +590,10 @@ def check_dependencies() -> bool:
                 _box_row(w, bx, W,
                          f"    {_C_RED}✗ {name} not found{_RST}")
 
-    # Alternative backend row
+    # Backend row
     codex_bin = _find_bin("codex")
     _box_row(w, bx, W,
-             f"  {_C_GRAY}Backend{_RST}   {_check_tool('claude', _find_bin('claude'))}  "
-             f"{_check_tool('codex', codex_bin)}")
+             f"  {_C_GRAY}Backend{_RST}   {_check_tool('codex', codex_bin)}")
 
     w(f"  {bx}├{'─' * W}┤{_RST}\n")
 
@@ -1287,7 +1257,7 @@ def _report_toolchain_visibility(w):
     Background: `plamen install` is the non-interactive install. It
     does NOT install per-chain toolchains (Foundry, Solana CLI, Anchor,
     Aptos, Sui, etc.) — that's `plamen setup`. But users often:
-      - install `plamen` non-interactively (Claude Code Bash, CI, docs)
+      - install `plamen` non-interactively (Codex shell, CI, docs)
       - skip `plamen setup` ("I'll do it later")
       - launch an audit
       - watch the fuzz phases report COMPILATION_FAILED because
@@ -1358,7 +1328,7 @@ def _report_toolchain_visibility(w):
         w(f"\n")
         w(f"  {_C_GRAY}macOS/Linux PATH note: if you installed a toolchain manually{_RST}\n")
         w(f"  {_C_GRAY}(e.g. via `foundryup`), its installer may have only written{_RST}\n")
-        w(f"  {_C_GRAY}`export PATH=...` to .bashrc / .zshrc. Codex / Claude Code{_RST}\n")
+        w(f"  {_C_GRAY}`export PATH=...` to .bashrc / .zshrc. Codex{_RST}\n")
         w(f"  {_C_GRAY}subprocesses launched from a parent shell that didn't source{_RST}\n")
         w(f"  {_C_GRAY}those files will not see the toolchain. Add the export to{_RST}\n")
         w(f"  {_C_GRAY}~/.profile (sourced by login shells) instead, OR start the{_RST}\n")
@@ -1374,7 +1344,7 @@ def _update_path_env(new_paths: list, persist: bool = False):
 
     Persistence is decoupled from the current-PATH check: a directory that's
     already in the running process PATH (e.g. inherited from `.bashrc`) may
-    still be MISSING from the Windows User PATH that Codex / Claude Code
+    still be MISSING from the Windows User PATH that Codex
     subprocesses inherit at spawn time. We persist to the registry regardless
     of whether the running process already has it. `_persist_path_windows`
     is itself idempotent, so this is safe.
@@ -1542,12 +1512,12 @@ def _build_rag_db(w):
 
     # Check for Solodit API key — needed for the largest data source.
     # The key must be available in the environment when this process runs.
-    # Recommended: add SOLODIT_API_KEY to ~/.claude/settings.json "env" section
-    # so it is always available to plamen and audit agents alike.
+    # Recommended: export SOLODIT_API_KEY in the shell that launches Codex, or
+    # add it to ~/.codex/config.toml for MCP/server-specific environment use.
     if not os.environ.get("SOLODIT_API_KEY", "").strip():
         w(f"  {_C_ORANGE}Note: SOLODIT_API_KEY not set — Solodit indexing will be skipped{_RST}\n")
         w(f"  {_C_GRAY}Get a free key at https://solodit.cyfrin.io{_RST}\n")
-        w(f"  {_C_GRAY}Add to ~/.claude/settings.json → \"env\": {{\"SOLODIT_API_KEY\": \"your_key\"}}{_RST}\n\n")
+        w(f"  {_C_GRAY}Export SOLODIT_API_KEY before running, or add it to ~/.codex/config.toml.{_RST}\n\n")
 
     # Adaptive timeouts: fanless Macs (MacBook Air) thermal-throttle under sustained ML
     # load, so give them more time and fewer Solodit pages to stay within timeout.
@@ -1621,7 +1591,7 @@ def _build_rag_db(w):
 
 def _quick_check_required() -> bool:
     """Silent check for required tools. Returns True if all present."""
-    if not _detect_cli_backends():
+    if not _find_codex_bin():
         return False
     for name in ("python", "npx", "npm", "git"):
         if name == "python":
@@ -2444,45 +2414,41 @@ def _merge_claude_md(w):
 
 
 def run_uninstall():
-    """Remove Plamen symlinks and injected config from ~/.claude/."""
-    import json as _json
+    """Remove Codex adapter files installed under ~/.codex/."""
     w = sys.stdout.write
+    codex_home = os.path.normpath(os.path.expanduser("~/.codex"))
+    codex_plamen = os.path.join(codex_home, "plamen")
 
-    manifest_path = os.path.join(CLAUDE_HOME, _PLAMEN_MANIFEST)
-    if not os.path.isfile(manifest_path):
-        w(f"  {_C_ORANGE}No install manifest found at {manifest_path}{_RST}\n")
-        w(f"  {_C_GRAY}Nothing to uninstall.{_RST}\n")
-        return
+    paths = [
+        os.path.join(codex_home, "AGENTS.md"),
+        os.path.join(codex_home, "commands", "plamen.md"),
+        os.path.join(codex_home, "commands", "plamen-l1.md"),
+        os.path.join(codex_home, "skills", "plamen"),
+        os.path.join(codex_home, "skills", "plamen-l1"),
+    ]
+    agents_src = os.path.join(PLAMEN_HOME, "codex-adapter", "agents")
+    if os.path.isdir(agents_src):
+        for filename in os.listdir(agents_src):
+            paths.append(os.path.join(codex_home, "agents", filename))
 
-    with open(manifest_path) as f:
-        manifest = _json.load(f)
-
-    n_items = len(manifest.get("installed", []))
-    w(f"\n  {_C_WHITE}This will remove {n_items} symlinks from {CLAUDE_HOME}{_RST}\n")
-    w(f"  {_C_GRAY}and undo config merges (settings.json, mcp.json, CLAUDE.md).{_RST}\n")
-    w(f"  {_C_GRAY}Backups (.pre-plamen) will be restored if they exist.{_RST}\n")
+    w(f"\n  {_C_WHITE}This will remove Plamen Codex adapter files from {codex_home}{_RST}\n")
     w(f"  {_C_GRAY}The Plamen repo at {PLAMEN_HOME} will NOT be deleted.{_RST}\n\n")
     sys.stdout.flush()
 
-    # Non-TTY guard: refuse to proceed without an interactive confirm.
-    # Destructive ops should never silently auto-proceed; if you need a
-    # scripted uninstall, set PLAMEN_UNINSTALL_YES=1 in the environment.
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         if os.environ.get("PLAMEN_UNINSTALL_YES") == "1":
-            w(f"  {_C_ORANGE}>{_RST} Non-TTY context, PLAMEN_UNINSTALL_YES=1 — proceeding.\n")
+            w(f"  {_C_ORANGE}>{_RST} Non-TTY context, PLAMEN_UNINSTALL_YES=1 -- proceeding.\n")
         else:
-            w(f"  {_C_ORANGE}!{_RST} Non-TTY context (Claude Code Bash / CI / piped stdio).\n")
-            w(f"    {_C_GRAY}Uninstall requires explicit confirmation. Either:{_RST}\n")
-            w(f"    {_C_GRAY}  - Run `plamen uninstall` from a real terminal, OR{_RST}\n")
-            w(f"    {_C_GRAY}  - Set PLAMEN_UNINSTALL_YES=1 to bypass the prompt.{_RST}\n\n")
+            w(f"  {_C_ORANGE}!{_RST} Non-TTY context.\n")
+            w(f"    {_C_GRAY}Run `plamen uninstall` from a real terminal, or set{_RST}\n")
+            w(f"    {_C_GRAY}PLAMEN_UNINSTALL_YES=1 to bypass the prompt.{_RST}\n\n")
             return
-        # Non-TTY + PLAMEN_UNINSTALL_YES=1 path: skip the inquirer prompt.
         confirm = True
     else:
         confirm = inquirer.select(
             message="Proceed with uninstall?",
             choices=[
-                {"name": "Yes, uninstall Plamen", "value": True},
+                {"name": "Yes, uninstall Plamen Codex adapter", "value": True},
                 {"name": "Cancel", "value": False},
             ],
             default=False,
@@ -2497,94 +2463,40 @@ def run_uninstall():
         return
 
     removed = 0
-    restored = 0
-    for path in manifest.get("installed", []):
-        is_link = os.path.islink(path) or _is_junction(path)
-        if is_link:
+    skipped = 0
+
+    if os.path.islink(codex_plamen) or _is_junction(codex_plamen):
+        try:
+            target = os.path.realpath(codex_plamen)
+            if os.path.normpath(target) == os.path.normpath(PLAMEN_HOME):
+                if os.path.isdir(codex_plamen) and not os.path.islink(codex_plamen):
+                    os.rmdir(codex_plamen)
+                else:
+                    os.remove(codex_plamen)
+                removed += 1
+            else:
+                skipped += 1
+                w(f"  {_C_ORANGE}!{_RST} Skipped {codex_plamen}: points to {target}\n")
+        except OSError as e:
+            skipped += 1
+            w(f"  {_C_ORANGE}!{_RST} Could not remove {codex_plamen}: {e}\n")
+
+    for path in paths:
+        if not os.path.exists(path) and not os.path.islink(path):
+            continue
+        try:
             if os.path.isdir(path) and not os.path.islink(path):
-                os.rmdir(path)  # junction
+                shutil.rmtree(path)
             else:
-                os.remove(path)  # symlink
+                os.remove(path)
             removed += 1
-            backup = path + ".pre-plamen"
-            if os.path.exists(backup):
-                shutil.move(backup, path)
-                restored += 1
+        except OSError as e:
+            skipped += 1
+            w(f"  {_C_ORANGE}!{_RST} Could not remove {path}: {e}\n")
 
-    # Remove CLAUDE.md injection
-    claude_md = os.path.join(CLAUDE_HOME, "CLAUDE.md")
-    if os.path.isfile(claude_md):
-        with open(claude_md, "r", encoding="utf-8") as f:
-            content = f.read()
-        if _CLAUDE_MD_START in content:
-            if _CLAUDE_MD_END in content:
-                before = content[:content.index(_CLAUDE_MD_START)]
-                after_end = content.index(_CLAUDE_MD_END) + len(_CLAUDE_MD_END)
-                after = content[after_end:]
-                cleaned = before.rstrip("\n") + after.lstrip("\n")
-            else:
-                # End marker missing — strip from start marker to EOF
-                cleaned = content[:content.index(_CLAUDE_MD_START)].rstrip("\n")
-            with open(claude_md, "w", encoding="utf-8") as f:
-                f.write(cleaned if cleaned.strip() else "")
-            w(f"  {_C_GREEN}CLAUDE.md: removed Plamen section{_RST}\n")
-
-    # Remove Plamen entries from settings.json
-    settings_path = os.path.join(CLAUDE_HOME, "settings.json")
-    if os.path.isfile(settings_path):
-        with open(settings_path) as f:
-            settings = _json.load(f)
-        example = os.path.join(PLAMEN_HOME, "settings.json.example")
-        if os.path.isfile(example):
-            with open(example) as f:
-                plamen_settings = _json.load(f)
-            # Remove Plamen-specific permissions
-            for key in ("allow", "deny"):
-                plamen_list = plamen_settings.get("permissions", {}).get(key, [])
-                current = settings.get("permissions", {}).get(key, [])
-                if "permissions" in settings and key in settings["permissions"]:
-                    settings["permissions"][key] = [x for x in current if x not in plamen_list]
-            # Remove Plamen env vars
-            for k in plamen_settings.get("env", {}):
-                settings.get("env", {}).pop(k, None)
-            # Remove legacy Plamen hooks (V1 watchdog — removed in v2.0.0)
-            if "hooks" in settings:
-                for event_name in list(settings["hooks"].keys()):
-                    settings["hooks"][event_name] = [
-                        group for group in settings["hooks"][event_name]
-                        if not any("phase_gate.py" in h.get("command", "")
-                                   or "command_guard.py" in h.get("command", "")
-                                   or "primitive_telemetry.py" in h.get("command", "")
-                                   for h in group.get("hooks", []))
-                    ]
-                    if not settings["hooks"][event_name]:
-                        del settings["hooks"][event_name]
-                if not settings["hooks"]:
-                    del settings["hooks"]
-            with open(settings_path, "w") as f:
-                _json.dump(settings, f, indent=2)
-                f.write("\n")
-            w(f"  {_C_GREEN}settings.json: removed Plamen entries{_RST}\n")
-
-    # Remove Plamen MCP servers from mcp.json
-    mcp_path = os.path.join(CLAUDE_HOME, "mcp.json")
-    if os.path.isfile(mcp_path):
-        with open(mcp_path) as f:
-            mcp = _json.load(f)
-        example = os.path.join(PLAMEN_HOME, "mcp.json.example")
-        if os.path.isfile(example):
-            with open(example) as f:
-                plamen_mcp = _json.load(f)
-            for name in plamen_mcp.get("mcpServers", {}):
-                mcp.get("mcpServers", {}).pop(name, None)
-            with open(mcp_path, "w") as f:
-                _json.dump(mcp, f, indent=2)
-                f.write("\n")
-            w(f"  {_C_GREEN}mcp.json: removed Plamen servers{_RST}\n")
-
-    os.remove(manifest_path)
-
-    w(f"\n  {_C_GREEN}Uninstalled: {removed} links removed, {restored} backups restored{_RST}\n")
+    w(f"\n  {_C_GREEN}Uninstalled Codex adapter files: {removed} removed{_RST}\n")
+    if skipped:
+        w(f"  {_C_ORANGE}{skipped} path(s) skipped; inspect messages above.{_RST}\n")
     w(f"  {_C_GRAY}Plamen repo at {PLAMEN_HOME} is untouched.{_RST}\n\n")
 
 
@@ -2687,11 +2599,9 @@ def _install_codex_adapter(w):
                 shutil.copy2(src_f, dst_f)
                 items_copied += 1
 
-    # NOTE: Codex MCP tool permissions cannot be pre-configured via rules files.
-    # Users must select "Always allow" on the first MCP tool prompt per server.
-    # Codex's rules/default.rules only supports prefix_rule (shell commands).
-    w(f"  {_C_ORANGE}!{_RST} MCP tools require one-time approval on first use in Codex.\n")
-    w(f"    {_C_GRAY}Select '3. Always allow' when prompted for each MCP server.{_RST}\n")
+    # The driver runs `codex exec` with a self-contained subprocess config.
+    # Interactive Codex sessions can still use the installed config.toml.
+    w(f"  {_C_GREEN}✓{_RST} Codex subprocesses use driver-managed execution settings\n")
 
     # Summary
     w(f"\n  {_C_GREEN}Codex adapter installed successfully.{_RST}\n")
@@ -2709,12 +2619,11 @@ def run_doctor():
 
     Checks every artifact the wizard / driver depends on:
       * Plamen home dir + manifest present
-      * Required CLIs on PATH (python, git, npx — plus claude OR codex)
+      * Required CLIs on PATH (python, git, npx, codex)
       * Python deps importable (rich, InquirerPy, core RAG packages)
-      * ~/.claude symlinks resolving (Claude backend)
-      * ~/.codex/plamen symlink resolving (Codex backend, if installed)
+      * ~/.codex/plamen symlink resolving
       * Submodules populated (custom-mcp/slither-mcp, farofino-mcp)
-      * settings.json / CLAUDE.md markers intact
+      * AGENTS.md present
 
     Exit 0 if all green. Exit 1 if any check fails — useful for CI.
     """
@@ -2785,43 +2694,11 @@ def run_doctor():
                     f"aliases (turn OFF App Installer python/python3)."
                 )
 
-    claude_bin = _find_bin("claude") or _find_bin("claude.cmd")
     codex_bin = _find_codex_bin()
-    if claude_bin or codex_bin:
-        if claude_bin:
-            ok(f"`claude` on PATH ({claude_bin})")
-            # v2.0.1: probe authentication. An unauthenticated `claude -p`
-            # invocation returns rc=0 with a "Not logged in" / "/login"
-            # message on stdout, which the V2 driver cannot distinguish
-            # from a real subprocess response and ends up burning the
-            # phase budget on empty output. Surface this in `doctor`.
-            try:
-                probe = subprocess.run(
-                    [claude_bin, "-p", "ping"],
-                    capture_output=True, text=True, timeout=5,
-                )
-                blob = (probe.stdout or "") + (probe.stderr or "")
-                if re.search(r"not logged in|/login\b|please log in|run `claude`",
-                             blob, re.IGNORECASE):
-                    warn("`claude` is on PATH but NOT authenticated. "
-                         "Either run `claude` interactively and complete `/login` (OAuth), "
-                         "OR set the ANTHROPIC_API_KEY environment variable with a valid "
-                         "Anthropic Console API key. "
-                         "A key dropped into ~/.claude/settings.json is NOT picked up — "
-                         "that file is for hooks/MCP/plugin config, not credentials. "
-                         "(V2 driver will produce empty subprocess output otherwise.)")
-            except (subprocess.TimeoutExpired, OSError):
-                # 5s timeout means `claude` is alive and waiting on
-                # input — that is the authenticated path; no warning.
-                pass
-        else:
-            warn("`claude` not on PATH (Claude Code backend unavailable)")
-        if codex_bin:
-            ok(f"`codex` on PATH ({codex_bin})")
-        else:
-            warn("`codex` not on PATH (Codex CLI backend unavailable)")
+    if codex_bin:
+        ok(f"`codex` on PATH ({codex_bin})")
     else:
-        fail("Neither `claude` nor `codex` on PATH — no backend usable")
+        fail("`codex` not on PATH — Codex CLI backend unavailable")
 
     # 3. Python deps
     for mod in ("rich", "InquirerPy"):
@@ -2837,58 +2714,20 @@ def run_doctor():
         except ImportError:
             warn(f"Python module `{mod}` missing — {hint} disabled (`plamen rag` to build)")
 
-    # 4. ~/.claude install (if claude backend exists)
-    if claude_bin:
-        manifest_path = os.path.join(CLAUDE_HOME, _PLAMEN_MANIFEST)
-        if os.path.isfile(manifest_path):
-            ok(f"Plamen manifest at {manifest_path}")
-            try:
-                with open(manifest_path) as f:
-                    m = _json.load(f)
-                installed = m.get("installed", [])
-                missing_links = [p for p in installed if not os.path.exists(p)]
-                if missing_links:
-                    fail(f"{len(missing_links)} symlinked items missing on disk (re-run `plamen install`)")
-                else:
-                    ok(f"All {len(installed)} symlinked items resolve")
-            except Exception as e:
-                fail(f"Manifest unreadable: {e}")
-        else:
-            warn(f"No Plamen manifest at {manifest_path} (run `plamen install`)")
-
-        claude_md = os.path.join(CLAUDE_HOME, "CLAUDE.md")
-        if os.path.isfile(claude_md):
-            try:
-                with open(claude_md, "r", encoding="utf-8") as f:
-                    text = f.read()
-                # Match the canonical marker constants (`_CLAUDE_MD_START`
-                # is the long form `<!-- PLAMEN:START — managed by ... -->`;
-                # the previous short literal `<!-- PLAMEN:START -->` is
-                # never written by install, so the warn branch always fired
-                # on a healthy install).
-                if _CLAUDE_MD_START in text and _CLAUDE_MD_END in text:
-                    ok("CLAUDE.md has Plamen marker block")
-                else:
-                    warn("CLAUDE.md missing PLAMEN markers (re-run `plamen install`)")
-            except OSError as e:
-                warn(f"Could not read CLAUDE.md: {e}")
-        else:
-            warn("CLAUDE.md missing")
-
-    # 5. ~/.codex install (if codex backend exists)
+    # 4. ~/.codex install
     if codex_bin:
         codex_plamen = os.path.normpath(os.path.expanduser("~/.codex/plamen"))
         if os.path.isdir(codex_plamen) or os.path.islink(codex_plamen):
             ok(f"~/.codex/plamen exists ({codex_plamen})")
         else:
-            warn("~/.codex/plamen missing (run `plamen install --codex`)")
+            warn("~/.codex/plamen missing (run `plamen install`)")
         agents_md = os.path.normpath(os.path.expanduser("~/.codex/AGENTS.md"))
         if os.path.isfile(agents_md):
             ok("~/.codex/AGENTS.md present")
         else:
-            warn("~/.codex/AGENTS.md missing (run `plamen install --codex`)")
+            warn("~/.codex/AGENTS.md missing (run `plamen install`)")
 
-    # 6. Submodules populated
+    # 5. Submodules populated
     for sub, critical_for in (
         ("custom-mcp/slither-mcp", "EVM static analysis"),
         ("custom-mcp/farofino-mcp", "EVM/Aderyn integration"),
@@ -3029,21 +2868,13 @@ def run_migrate():
 
 
 def run_install():
-    """Non-interactive install: symlinks, settings merge, CLAUDE.md inject,
-    submodules, Python deps, config files.
+    """Non-interactive Codex install: deps, shared symlink, AGENTS/config.
 
-    Idempotent. Safe to run from any non-TTY context (Claude Code Bash, Codex
+    Idempotent. Safe to run from any non-TTY context (Codex
     shell, CI). Returns 0 on success. The interactive toolchain wizard lives
     in `run_setup()` — keep this function free of `inquirer.*` calls.
     """
     w = sys.stdout.write
-
-    # ── Pre-flight: heal dangling Plamen hook references ──────
-    # If a previous install moved ~/.plamen away or settings.json points hooks
-    # at paths that no longer exist, Claude Code's PreToolUse Bash hook blocks
-    # every shell command — including a retry of `plamen install`. Strip those
-    # entries BEFORE the new install touches anything.
-    _heal_dangling_hooks(w)
 
     # ── Windows-only: drop a `python3` shim so LLM-typed shell commands
     # don't hit the Microsoft Store App Execution Alias.
@@ -3095,19 +2926,6 @@ def run_install():
     # aptos / solana.
     _report_toolchain_visibility(w)
 
-    # ── Symlink install (if repo is not directly in ~/.claude) ─
-    has_claude = bool(shutil.which("claude") or shutil.which("claude.cmd"))
-    if has_claude and os.path.normpath(PLAMEN_HOME) != os.path.normpath(CLAUDE_HOME):
-        console.print(Rule(title="Linking into Claude Code", style="color(238)"))
-        _run_symlink_install(w)
-    elif not has_claude:
-        # v2.0.1: loud, not silent. A user who installs Plamen without
-        # `claude` on PATH gets no symlinks AND no config merge, which
-        # leaves the V2 driver unable to spawn subprocesses on the
-        # Claude Code backend. Make it impossible to miss.
-        w(f"  {_C_RED}! Claude Code not detected -- skipping ~/.claude/ symlinks{_RST}\n")
-        w(f"    {_C_GRAY}Install via https://claude.com/code, then re-run `plamen install`.{_RST}\n")
-
     # ── Submodules ─────────────────────────────────────────────
     slither_dir = os.path.join(PLAMEN_HOME, "custom-mcp", "slither-mcp")
     if os.path.isdir(slither_dir) and not os.listdir(slither_dir):
@@ -3127,27 +2945,10 @@ def run_install():
     console.print(Rule(title="Python Dependencies", style="color(238)"))
     _setup_python_deps(w)
 
-    # ── Config files ──────────────────────────────────────────
-    # All four merge steps target ~/.claude/ — only meaningful when Claude
-    # Code is installed. On Codex-only machines (or CI runners with neither
-    # backend installed), there's nothing to merge INTO and the writes
-    # would fail with FileNotFoundError on the missing ~/.claude/ dir.
-    if has_claude:
-        console.print(Rule(title="Configuration", style="color(238)"))
-        _setup_config_files(w)
-    else:
-        w(f"  {_C_RED}! Claude Code not detected -- skipping ~/.claude/ config merge{_RST}\n")
-        w(f"    {_C_GRAY}(Codex side, if installed, is handled by `plamen install --codex`){_RST}\n")
-        # v2.0.1: explicit INSTALL INCOMPLETE banner so the user does
-        # not assume `plamen install` succeeded when half of it was
-        # skipped. The exit code stays 0 (this is informational, not
-        # a hard failure — Codex-only or planned-later setups are
-        # valid), but the message must be unmissable.
-        console.print(Rule(title="INSTALL INCOMPLETE", style=f"color(160)"))
-        w(f"  {_C_RED}Claude Code backend NOT configured.{_RST}\n")
-        w(f"  {_C_GRAY}Install `claude` (https://claude.com/code), authenticate{_RST}\n")
-        w(f"  {_C_GRAY}with `claude` once, then re-run `plamen install`.{_RST}\n")
-        w(f"  {_C_GRAY}Run `plamen doctor` to verify.{_RST}\n")
+    # ── Codex config files ─────────────────────────────────────
+    console.print(Rule(title="Codex Adapter", style="color(238)"))
+    if not _install_codex_adapter(w):
+        return 1
 
     return 0
 
@@ -3161,11 +2962,13 @@ def run_setup():
     """
     w = sys.stdout.write
 
-    run_install()
+    rc = run_install()
+    if rc != 0:
+        return rc
 
     # Non-TTY guard. The toolchain checkbox below uses prompt_toolkit, which
     # crashes with `OSError: [Errno 22] Invalid argument` from add_reader when
-    # there is no controlling terminal (Claude Code Bash, Codex shell, CI).
+    # there is no controlling terminal (Codex shell, CI).
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         w(f"\n  {_C_GREEN}Plamen install complete.{_RST}\n")
         w(f"  {_C_GRAY}Run `plamen setup` from a real terminal to install missing{_RST}\n")
@@ -3744,7 +3547,7 @@ def _l1_stages(mode, bc, vc, est_findings, src_tok, total_lines,
 
 def estimate_cost(target: str, mode: str,
                   scope_file: str = "", scope_notes: str = "",
-                  pipeline: str = "sc", backend: str = "claude",
+                  pipeline: str = "sc", backend: str = "codex",
                   subsystem_scope: str = "") -> dict:
     """Estimate audit resource usage by modeling pipeline stages with context accumulation.
 
@@ -3759,6 +3562,7 @@ def estimate_cost(target: str, mode: str,
 
     Returns: lines, files, agents, est_input_mtok, plan_pct (Max x5 / x20)
     """
+    backend = "codex"
     # ── Build scope filter ──────────────────────────────────
     # Extract filenames/contract names from scope_file or scope_notes
     scope_names = set()  # lowercase basenames or stems to match against
@@ -3829,6 +3633,7 @@ def estimate_cost(target: str, mode: str,
             "files": 0, "lines": 0, "agents": 0,
             "input_mtok": 0, "output_mtok": 0, "api_cost": 0,
             "pct_x5": 0, "pct_x20": 0, "pct_pro": 0, "scoped": False,
+            "backend": backend,
         }
 
     walk_targets = module_roots if module_roots else [target]
@@ -3995,15 +3800,11 @@ def estimate_cost(target: str, mode: str,
     output_mtok = total_output / 1_000_000
 
     # ── API cost estimate ────────────────────────────────────
-    if backend == "codex":
-        # OpenAI API-equivalent pricing as of 2026-05:
-        # GPT-5.5 $5/$30, GPT-5.4 $2.50/$15, GPT-5.4 nano $0.20/$1.25.
-        # The launcher maps Plamen opus/sonnet/haiku tiers to those models by
-        # default; env overrides may change real billing.
-        pricing = {"opus": (5.0, 30.0), "sonnet": (2.5, 15.0), "haiku": (0.20, 1.25)}
-    else:
-        # Claude pricing (Opus 4.6 $5/$25, Sonnet 4.6 $3/$15, Haiku 4.5 $1/$5)
-        pricing = {"opus": (5.0, 25.0), "sonnet": (3.0, 15.0), "haiku": (1.0, 5.0)}
+    # OpenAI API-equivalent pricing as of 2026-05:
+    # GPT-5.5 $5/$30, GPT-5.4 $2.50/$15, GPT-5.4 nano $0.20/$1.25.
+    # The launcher maps Plamen opus/sonnet/haiku tiers to those models by
+    # default; env overrides may change real billing.
+    pricing = {"opus": (5.0, 30.0), "sonnet": (2.5, 15.0), "haiku": (0.20, 1.25)}
     api_cost = 0.0
     for m in ("opus", "sonnet", "haiku"):
         ip, op = pricing[m]
@@ -4073,15 +3874,10 @@ def estimate_cost(target: str, mode: str,
         ai, _ = agent_tokens(b, t)
         ref_tokens += c * ai
 
-    # Plan usage percentages (Claude-specific — not applicable for Codex)
-    if backend == "codex":
-        pct_x20 = 0.0
-        pct_x5 = 0.0
-        pct_pro = 0.0
-    else:
-        pct_x20 = (total_input / ref_tokens) * ref_pct if ref_tokens else 0
-        pct_x5 = pct_x20 * 4
-        pct_pro = pct_x5 * 2.5 if mode == "light" else pct_x5 * 5
+    # Weekly plan percentages are not comparable to Codex/OpenAI quotas.
+    pct_x20 = 0.0
+    pct_x5 = 0.0
+    pct_pro = 0.0
 
     return {
         "files": total_files,
@@ -4476,7 +4272,8 @@ def show_summary(mode: str, target: str, docs: str,
                  cost_estimate: dict = None, strict: bool = False,
                  pipeline: str = "sc", language: str = "",
                  tier: str = "", modules: list = None, fork_mode: str = "",
-                 backend: str = "claude"):
+                 backend: str = "codex"):
+    backend = "codex"
     w = sys.stdout.write
     bx = _C_BOX
     W = 52
@@ -4505,8 +4302,7 @@ def show_summary(mode: str, target: str, docs: str,
     mode_label = mode_table.get(mode, {}).get("label", mode)
     row("Pipeline", "L1 Infrastructure" if pipeline == "l1" else "Smart Contract", _C_ORANGE)
     row("Mode", mode_label, _C_ORANGE)
-    if backend == "codex":
-        row("Backend", "Codex CLI (OpenAI)", _C_ORANGE)
+    row("Backend", "Codex CLI (OpenAI)", _C_ORANGE)
     row("AI Model", _wizard_model_summary(backend, mode), _C_ORANGE)
     row("Target", target)
     if language:
@@ -4541,32 +4337,15 @@ def show_summary(mode: str, target: str, docs: str,
         row("Tokens", f"~{cost_estimate['input_mtok']}M in / ~{cost_estimate['output_mtok']}M out")
         api = cost_estimate.get("api_cost", 0)
         est_backend = cost_estimate.get("backend", backend)
-        if est_backend == "codex":
-            row("API equiv", f"~${api:.0f} USD (OpenAI)", _C_WHITE)
-            row("Weekly", "N/A - Codex/OpenAI quotas differ", _C_DARK_GRAY)
-        else:
-            row("API cost", f"~${api:.0f} USD", _C_WHITE)
-            pct_pro = cost_estimate.get("pct_pro", 0)
-            pct5 = cost_estimate["pct_x5"]
-            pct20 = cost_estimate["pct_x20"]
-            if pct_pro > 0:
-                color_pro = _C_RED if pct_pro > 80 else (_C_ORANGE if pct_pro > 40 else _C_GREEN)
-                row("Pro", f"~{pct_pro:.0f}% of weekly allowance", color_pro)
-            if pct5 > 0:
-                color5 = _C_RED if pct5 > 80 else (_C_ORANGE if pct5 > 40 else _C_GREEN)
-                color20 = _C_RED if pct20 > 80 else (_C_ORANGE if pct20 > 40 else _C_GREEN)
-                row("Max x5", f"~{pct5:.0f}% of weekly allowance", color5)
-                row("Max x20", f"~{pct20:.0f}% of weekly allowance", color20)
+        row("API equiv", f"~${api:.0f} USD (OpenAI)", _C_WHITE)
+        row("Weekly", "N/A - Codex/OpenAI quotas differ", _C_DARK_GRAY)
 
     w(f"  {bx}╰{'─' * W}╯{_RST}\n")
 
     if cost_estimate:
         w(f"  {_C_DARK_GRAY}Rough estimates only. Actual usage varies with protocol{_RST}\n")
-        if cost_estimate.get("backend", backend) == "codex":
-            w(f"  {_C_DARK_GRAY}Codex shows API-equivalent spend; weekly plan percent is not{_RST}\n")
-            w(f"  {_C_DARK_GRAY}comparable to Claude Max/Pro. Run /cost after for actuals.{_RST}\n")
-        else:
-            w(f"  {_C_DARK_GRAY}complexity and findings count. Run /cost after for actuals.{_RST}\n")
+        w(f"  {_C_DARK_GRAY}Codex shows API-equivalent spend; weekly plan percent is not{_RST}\n")
+        w(f"  {_C_DARK_GRAY}comparable to Codex account quotas. Run /cost after for actuals.{_RST}\n")
 
     w("\n")
     sys.stdout.flush()
@@ -4888,13 +4667,7 @@ def launch_v2(pipeline: str, mode: str, target: str, language: str,
     scratchpad = os.path.join(target, ".scratchpad")
     os.makedirs(scratchpad, exist_ok=True)
 
-    if not cli_backend:
-        detected_backends = _detect_cli_backends()
-        cli_backend = (
-            detected_backends[0]
-            if len(detected_backends) == 1
-            else _ambient_backend(detected_backends)
-        )
+    cli_backend = "codex"
 
     config = {
         "project_root": target,
@@ -4957,40 +4730,13 @@ def launch_v2(pipeline: str, mode: str, target: str, language: str,
     sys.exit(result.returncode)
 
 
-def launch_claude(mode: str, target: str, docs: str,
-                  network: str = "", scope_file: str = "", scope_notes: str = "",
-                  **kwargs):
-    """Launch 'compare' mode — runs /plamen compare in a Claude Code session."""
-    claude_bin = shutil.which("claude")
-    if not claude_bin:
-        sys.stdout.write(f"  {_C_RED}✗ 'claude' not found in PATH{_RST}\n")
-        sys.exit(1)
-
-    parts = ["/plamen compare"]
-    if target:
-        parts.append(f"report: {target}")
-    if docs:
-        parts.append(f"ground_truth: {docs}")
-    prompt = " ".join(parts)
-
-    console.print(Rule(style="color(238)"))
-    w = sys.stdout.write
-    w(f"\n  {_BOLD}{_C_WHITE}Launching Claude Code...{_RST}\n\n")
-    sys.stdout.flush()
-
-    if sys.platform == "win32":
-        os.system("")
-    result = subprocess.run([claude_bin, prompt])
-    sys.exit(result.returncode)
-
-
 # ── Main: state machine with back support ────────────────────
 
 def _parse_cli_opts() -> dict:
     """Parse --key VALUE and --flag options from sys.argv into a dict."""
     opts = {"docs": "", "network": "", "scope_file": "", "scope_notes": "",
             "proven_only": False, "tier": "", "modules": "",
-            "cli_backend": ""}
+            "cli_backend": "codex"}
     for i, a in enumerate(sys.argv):
         if a == "--docs" and i + 1 < len(sys.argv):
             opts["docs"] = sys.argv[i + 1]
@@ -5008,8 +4754,6 @@ def _parse_cli_opts() -> dict:
             opts["modules"] = sys.argv[i + 1]
         if a == "--codex":
             opts["cli_backend"] = "codex"
-        if a == "--claude":
-            opts["cli_backend"] = "claude"
     return opts
 
 
@@ -5038,11 +4782,10 @@ def main():
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}compare{_RST}                      Diff reports\n")
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}install{_RST}                      Non-interactive install (symlinks + config)\n")
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}setup{_RST}                        Install + interactive toolchain wizard + RAG\n")
-            w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}migrate{_RST}                      Migrate v1.x install (~/.claude) to v2.x (~/.plamen)\n")
+            w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}migrate{_RST}                      Migrate legacy v1.x install to ~/.plamen\n")
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}doctor{_RST}                       Verify install (no audit run, no API calls)\n")
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}rag{_RST}                          Rebuild RAG database only\n")
-            w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}uninstall{_RST}                    Remove from ~/.claude\n")
-            w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}install --codex{_RST}             Install Codex adapter\n")
+            w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}uninstall{_RST}                    Remove Codex adapter files\n")
             w(f"\n  {_C_WHITE}Options:{_RST}\n")
             w(f"    {_C_GRAY}--docs{_RST} PATH              Whitepaper or spec file\n")
             w(f"    {_C_GRAY}--scope{_RST} PATH             Scope file listing contracts\n")
@@ -5051,8 +4794,7 @@ def main():
             w(f"    {_C_GRAY}--proven-only{_RST}            Cap unproven findings at Low (SC only)\n")
             w(f"    {_C_GRAY}--tier{_RST} T0|T1|T2|T3      L1 tier override\n")
             w(f"    {_C_GRAY}--modules{_RST} a,b,c          L1 T1 module selection\n")
-            w(f"    {_C_GRAY}--codex{_RST}                  Use Codex CLI backend\n")
-            w(f"    {_C_GRAY}--claude{_RST}                 Use Claude Code backend (default)\n")
+            w(f"    {_C_GRAY}--codex{_RST}                  Accepted for compatibility; Codex is the only backend\n")
             w(f"\n")
             return
 
@@ -5077,23 +4819,16 @@ def main():
             return
 
         # ── Install / setup / migrate / uninstall subcommands ─
-        # `install` is non-interactive (symlinks + config + Python deps + hook
-        # self-heal). Safe in Claude Code Bash, Codex shell, and CI. Exits 0.
+        # `install` is non-interactive (Python deps + Codex adapter files).
+        # Safe in Codex shell and CI. Exits 0.
         # `setup` runs install, then the interactive toolchain checkbox + RAG.
-        # `--codex` runs only the Codex adapter generator (non-interactive).
+        # `--codex` is accepted for compatibility; install is Codex-only.
         if arg in ("install", "setup"):
-            if "--codex" in sys.argv:
-                show_banner()
-                w = sys.stdout.write
-                console.print(Rule(title="Codex Adapter", style="color(238)"))
-                _install_codex_adapter(w)
-                return
             show_banner()
             if arg == "install":
-                run_install()
+                sys.exit(run_install())
             else:
-                run_setup()
-            return
+                sys.exit(run_setup() or 0)
 
         if arg == "uninstall":
             show_banner()
@@ -5204,13 +4939,11 @@ def main():
 
         # ── Compare ──────────────────────────────────────────
         if arg == "compare":
-            _check_claude_md_version()
-            target = sys.argv[2] if len(sys.argv) > 2 else ""
-            docs = ""
-            for i, a in enumerate(sys.argv):
-                if a == "--docs" and i + 1 < len(sys.argv):
-                    docs = sys.argv[i + 1]
-            launch_claude("compare", target, docs)
+            sys.stdout.write(
+                f"  {_C_ORANGE}!{_RST} `plamen compare` is not available in "
+                f"the Codex-only first pass.\n"
+            )
+            sys.exit(1)
             return
 
     # ── Interactive flow (state machine) ─────────────────────
@@ -5247,7 +4980,7 @@ def main():
         check_dependencies()
         sys.stdout.write(f"  {_C_RED}Cannot proceed without required tools.{_RST}\n")
         sys.stdout.write(
-            f"  {_C_GRAY}Install Claude Code or Codex CLI, plus python, npm, and git, then retry.{_RST}\n"
+            f"  {_C_GRAY}Install Codex CLI, plus python, npm, and git, then retry.{_RST}\n"
         )
         sys.exit(1)
 
@@ -5262,7 +4995,7 @@ def main():
         show_banner()
         w = sys.stdout.write
         w(f"\n  {_C_ORANGE}!{_RST} Plamen wizard needs a real terminal.\n")
-        w(f"    {_C_GRAY}Detected non-TTY (Claude Code Bash / Codex shell / CI / piped stdio).{_RST}\n\n")
+        w(f"    {_C_GRAY}Detected non-TTY (Codex shell / CI / piped stdio).{_RST}\n\n")
         w(f"  {_C_WHITE}Choose one:{_RST}\n")
         w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}install{_RST}                    Non-interactive install (safe here)\n")
         w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}core{_RST} /path/to/project      Skip wizard with explicit mode + path\n")
@@ -5275,7 +5008,7 @@ def main():
 
     pipeline = mode = target = docs = network = scope_file = scope_notes = ""
     language = tier = fork_mode = subsystem_scope = ""
-    cli_backend = ""
+    cli_backend = "codex"
     is_fork = False
     l1_modules = []
     report = ground_truth = ""
@@ -5350,40 +5083,7 @@ def main():
 
         # ── Step 6: Backend selection (only if multiple runtimes exist) ──
         if step == 6:
-            detected_backends = _detect_cli_backends()
-            if _skip_backend_prompt() or len(detected_backends) <= 1:
-                cli_backend = (
-                    detected_backends[0]
-                    if len(detected_backends) == 1
-                    else _ambient_backend(detected_backends)
-                )
-                step = 1; continue
-            choices = []
-            if "claude" in detected_backends:
-                choices.append({
-                    "name": "Claude Code    Anthropic Claude",
-                    "value": "claude",
-                })
-            if "codex" in detected_backends:
-                choices.append({
-                    "name": "Codex CLI      OpenAI GPT-5.5 / GPT-5.4-mini",
-                    "value": "codex",
-                })
-            choices.extend(_back_separator())
-            result = inquirer.select(
-                message="AI runtime?",
-                choices=choices,
-                default=_ambient_backend(detected_backends),
-                pointer="  >",
-                style=_STYLE,
-                qmark=">",
-                amark="✓",
-            ).execute()
-            if result == _BACK:
-                _clear_and_rebanner()
-                step = 5; continue
-            cli_backend = result
-            sys.stdout.write("\n"); sys.stdout.flush()
+            cli_backend = "codex"
             step = 1; continue
 
         # ── SC audit flow ────────────────────────────────────
@@ -5447,10 +5147,10 @@ def main():
                 cost_est = None
                 if os.path.isdir(target):
                     cost_est = estimate_cost(target, mode, scope_file, scope_notes,
-                                            backend=cli_backend or "claude")
+                                            backend="codex")
                 show_summary(mode, target, docs, network, scope_file, scope_notes, cost_est,
                              strict=strict, pipeline="sc", language=language,
-                             backend=cli_backend or "claude")
+                             backend="codex")
                 decision = confirm_launch()
                 if decision == "back":
                     _crumb_set(_sc_crumbs_to(35))
@@ -5548,12 +5248,12 @@ def main():
                 cost_est = None
                 if os.path.isdir(target):
                     cost_est = estimate_cost(target, mode, pipeline="l1",
-                                            backend=cli_backend or "claude",
+                                            backend="codex",
                                             subsystem_scope=subsystem_scope)
                 show_summary(mode, target, docs, cost_estimate=cost_est,
                              pipeline="l1", language=language,
                              tier=tier, modules=l1_modules, fork_mode=fork_mode,
-                             backend=cli_backend or "claude")
+                             backend="codex")
                 decision = confirm_launch()
                 if decision == "back":
                     _crumb_set(_l1_crumbs_to(15))
@@ -5599,7 +5299,11 @@ def main():
                 if decision == "cancel":
                     sys.stdout.write(f"  {_C_DARK_GRAY}Cancelled.{_RST}\n")
                     return
-                launch_claude(mode, report, ground_truth)
+                sys.stdout.write(
+                    f"  {_C_ORANGE}!{_RST} Compare mode is not available in "
+                    f"the Codex-only first pass.\n"
+                )
+                sys.exit(1)
                 return
 
 

@@ -19,7 +19,7 @@ Before ANY verdict:
 4. **Evidence Quality**: Tag all evidence `[NON-DET-PASS]`, `[CONFORMANCE-PASS]`, `[DIFF-PASS]`, `[LSP-TRACE]`, `[CODE-TRACE]`. `[CODE-TRACE]` caps the finding at CONTESTED.
 5. **Confidence Gate**: Uncertain? → CONTESTED, not REFUTED. Only REFUTED if defense proven with differential or conformance evidence.
 
-Reference: `~/.claude/prompts/l1/generic-security-rules.md` if present; otherwise fall back to the L1 skill pack at `~/.claude/agents/skills/injectable/l1/`.
+Reference: `~/.codex/plamen/prompts/l1/generic-security-rules.md` if present; otherwise fall back to the L1 skill pack at `~/.codex/plamen/agents/skills/injectable/l1/`.
 
 ## Your Role
 
@@ -43,19 +43,19 @@ For EACH target in your assignment, apply the relevant skills from the L1 skill 
 
 Based on the target's bug class, read the full SKILL.md file(s):
 
-- Non-determinism target → `~/.claude/agents/skills/injectable/l1/consensus-safety-invariants/SKILL.md` (Section 1)
-- Fork-choice target → `~/.claude/agents/skills/injectable/l1/fork-choice-audit/SKILL.md`
-- Light-client target → `~/.claude/agents/skills/injectable/l1/light-client-proof-verification/SKILL.md`
-- BLS/crypto target → `~/.claude/agents/skills/injectable/l1/bls-aggregation-audit/SKILL.md`
-- Validator lifecycle → `~/.claude/agents/skills/injectable/l1/validator-lifecycle-and-slashing/SKILL.md`
-- Hardfork activation → `~/.claude/agents/skills/injectable/l1/hardfork-activation-and-protocol-upgrade/SKILL.md`
+- Non-determinism target → `~/.codex/plamen/agents/skills/injectable/l1/consensus-safety-invariants/SKILL.md` (Section 1)
+- Fork-choice target → `~/.codex/plamen/agents/skills/injectable/l1/fork-choice-audit/SKILL.md`
+- Light-client target → `~/.codex/plamen/agents/skills/injectable/l1/light-client-proof-verification/SKILL.md`
+- BLS/crypto target → `~/.codex/plamen/agents/skills/injectable/l1/bls-aggregation-audit/SKILL.md`
+- Validator lifecycle → `~/.codex/plamen/agents/skills/injectable/l1/validator-lifecycle-and-slashing/SKILL.md`
+- Hardfork activation → `~/.codex/plamen/agents/skills/injectable/l1/hardfork-activation-and-protocol-upgrade/SKILL.md`
 
 Follow the skill's numbered methodology sections. Each skill encodes the real-world bug patterns drawn from Round 4 research.
 
 Also load these when the target matches:
 
-- Gossip / seen-cache target -> `~/.claude/agents/skills/injectable/l1/gossip-cache-invariance/SKILL.md`
-- Tx identity / replay target -> `~/.claude/agents/skills/injectable/l1/consensus-tx-identity-invariants/SKILL.md`
+- Gossip / seen-cache target -> `~/.codex/plamen/agents/skills/injectable/l1/gossip-cache-invariance/SKILL.md`
+- Tx identity / replay target -> `~/.codex/plamen/agents/skills/injectable/l1/consensus-tx-identity-invariants/SKILL.md`
 
 ### 2. Invariant enumeration
 

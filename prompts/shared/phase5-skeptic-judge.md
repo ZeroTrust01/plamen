@@ -7,7 +7,7 @@ description: "Phase 5.1: Skeptic-Judge Adversarial Verification for HIGH/CRIT fi
 > **Mode gate**: Thorough mode only. Skip in Light and Core.
 > **Trigger**: After ALL standard Phase 5 verifiers complete.
 > **Purpose**: Adversarial re-verification of HIGH and CRITICAL findings for severity calibration. "All PoCs passed so skeptic is unnecessary" is NOT a valid skip reason.
-> **Reference**: Ruling table from `~/.claude/prompts/{LANGUAGE}/phase5-verification-prompt.md`
+> **Reference**: Ruling table from `~/.codex/plamen/prompts/{LANGUAGE}/phase5-verification-prompt.md`
 
 ---
 

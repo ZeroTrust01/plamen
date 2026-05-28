@@ -38,7 +38,7 @@ Partial recon is better than no recon.
 
 ## TURN BUDGET POLICY - DRAFT-FIRST, ENRICH-LATER (MANDATORY)
 
-You run inside `claude -p` with a hard **--max-turns cap** (currently 80
+You run inside `codex exec` with a hard **--max-turns cap** (currently 80
 for recon) and a **--wall-clock timeout** (1500s for small projects,
 auto-scaled by the driver for larger ones). A single Read/Bash/Grep/Write
 call costs ONE turn. Large codebases (10k+ LOC, multiple contracts) can
@@ -131,7 +131,7 @@ Continue to TASK 0.5 (Fork Ancestry) and then TASK 1.
 
 ## TASK 0.5: Fork Ancestry Research -- Soroban Parent Contracts
 
-Read ~/.claude/agents/skills/soroban/fork-ancestry/SKILL.md if it exists, otherwise apply this methodology:
+Read ~/.codex/plamen/agents/skills/soroban/fork-ancestry/SKILL.md if it exists, otherwise apply this methodology:
 
 Execute all 4 steps with Soroban-specific parent detection:
 
@@ -154,7 +154,7 @@ Execute all 4 steps with Soroban-specific parent detection:
 
 ## TASK 1: Build Environment
 
-> **PATH note**: On Windows, `stellar` and `cargo` may not be in Claude Code's default PATH. Prefix Bash calls with: `export PATH="$HOME/.cargo/bin:$PATH" &&` if not found on first attempt. The Soroban target is `wasm32v1-none` (NOT `wasm32-unknown-unknown`).
+> **PATH note**: On Windows, `stellar` and `cargo` may not be in Codex CLI's default PATH. Prefix Bash calls with: `export PATH="$HOME/.cargo/bin:$PATH" &&` if not found on first attempt. The Soroban target is `wasm32v1-none` (NOT `wasm32-unknown-unknown`).
 
 1. Check for Cargo.toml with `soroban-sdk` dependency, `crate-type = ["cdylib"]`, `.stellar/` directory
 1b. Verify toolchain availability before building:
@@ -429,12 +429,12 @@ Write to {SCRATCHPAD}/test_results.md
 
 ## TASK 10: Template Recommendations
 
-### Soroban-Specific Skills (in ~/.claude/agents/skills/soroban/ " create as needed)
+### Soroban-Specific Skills (in ~/.codex/plamen/agents/skills/soroban/ " create as needed)
 - AUTH_ANALYSIS -- **ALWAYS required** (require_auth coverage, auth tree propagation across invoke_contract, admin checks)
 - STORAGE_LIFECYCLE -- TEMPORAL or PERSISTENT_STORAGE flag (TTL extension completeness, expiry handling, Instance storage size bounds; alias: STORAGE_TTL_SAFETY)
 - UPGRADE_SAFETY -- SOROBAN_UNPROTECTED_UPGRADE flag (update_current_contract_wasm guard, post-upgrade state validity)
 
-### Shared Templates (in ~/.claude/agents/skills/ " use soroban-adapted versions)
+### Shared Templates (in ~/.codex/plamen/agents/skills/ " use soroban-adapted versions)
 - SEMI_TRUSTED_ROLES, TOKEN_FLOW_TRACING, SHARE_ALLOCATION_FAIRNESS, TEMPORAL_PARAMETER_STALENESS
 - ECONOMIC_DESIGN_AUDIT, EXTERNAL_PRECONDITION_AUDIT (adapted for cross-contract calls)
 - EXTERNAL_PRECONDITION_AUDIT (covers Soroban oracle integrations via ORACLE flag), FLASH_LOAN_INTERACTION
@@ -490,11 +490,11 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 
 ### Injectable Skills
 {List any injectable skills recommended based on protocol type classification}
-- If protocol_type == 'vault': Recommend VAULT_ACCOUNTING injectable (from ~/.claude/agents/skills/injectable/vault-accounting/SKILL.md)
-- If protocol_type == 'lending': Recommend LENDING_PROTOCOL_SECURITY injectable (from ~/.claude/agents/skills/injectable/lending-protocol-security/SKILL.md)
-- If protocol_type == 'dex_integration': Recommend DEX_INTEGRATION_SECURITY injectable (from ~/.claude/agents/skills/injectable/dex-integration-security/SKILL.md)
-- If protocol_type == 'governance': Recommend GOVERNANCE_ATTACK_VECTORS injectable (from ~/.claude/agents/skills/injectable/governance-attack-vectors/SKILL.md)
-- If protocol_type == 'nft': Recommend NFT_PROTOCOL_SECURITY injectable (from ~/.claude/agents/skills/injectable/nft-protocol-security/SKILL.md)
+- If protocol_type == 'vault': Recommend VAULT_ACCOUNTING injectable (from ~/.codex/plamen/agents/skills/injectable/vault-accounting/SKILL.md)
+- If protocol_type == 'lending': Recommend LENDING_PROTOCOL_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/lending-protocol-security/SKILL.md)
+- If protocol_type == 'dex_integration': Recommend DEX_INTEGRATION_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/dex-integration-security/SKILL.md)
+- If protocol_type == 'governance': Recommend GOVERNANCE_ATTACK_VECTORS injectable (from ~/.codex/plamen/agents/skills/injectable/governance-attack-vectors/SKILL.md)
+- If protocol_type == 'nft': Recommend NFT_PROTOCOL_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/nft-protocol-security/SKILL.md)
 - Inject Into: See skill-index.md for merge target per injectable
 
 ### Niche Agent Binding Rules

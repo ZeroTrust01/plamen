@@ -9,7 +9,7 @@ Execute the instructions below directly and stop. Do not spawn subagents.
 > invariant fuzz agent.
 > **Timeout**: 15 minutes (built into the `medusa fuzz --timeout 900` invocation).
 > **Reference (not load-bearing)**: Full Adaptive Depth Loop pseudocode
-> is in `~/.claude/prompts/evm/phase4b-loop.md`. This file contains only
+> is in `~/.codex/plamen/prompts/evm/phase4b-loop.md`. This file contains only
 > the Medusa campaign directive.
 
 ---

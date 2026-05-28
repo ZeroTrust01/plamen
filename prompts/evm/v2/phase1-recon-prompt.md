@@ -38,7 +38,7 @@ than no recon.
 
 ## TURN BUDGET POLICY - DRAFT-FIRST, ENRICH-LATER (MANDATORY)
 
-You run inside `claude -p` with a hard **--max-turns cap** (currently 80
+You run inside `codex exec` with a hard **--max-turns cap** (currently 80
 for recon) and a **--wall-clock timeout** (1500s for small projects,
 auto-scaled by the driver for larger ones). A single Read/Bash/Grep/Write
 call costs ONE turn. Large codebases (10k+ LOC, 30+ contracts) can
@@ -380,7 +380,7 @@ For EACH recommended template, provide instantiation parameters:
 1. [Protocol-specific question]
 2. [Protocol-specific question]
 
-Available templates (in ~/.claude/agents/skills/):
+Available templates (in ~/.codex/plamen/agents/skills/):
 - CROSS_CHAIN_TIMING - for cross-chain messaging, rate sync
 - STAKING_RECEIPT_TOKENS - for delegation/staking receipts
 - SEMI_TRUSTED_ROLES - for BOT/OPERATOR/KEEPER analysis
@@ -448,13 +448,13 @@ After listing all recommended templates, output this binding manifest:
 
 ### Injectable Skills
 {List any injectable skills recommended based on protocol type classification}
-- If protocol_type == 'vault': Recommend VAULT_ACCOUNTING injectable (from ~/.claude/agents/skills/injectable/vault-accounting/SKILL.md)
-- If protocol_type == 'lending': Recommend LENDING_PROTOCOL_SECURITY injectable (from ~/.claude/agents/skills/injectable/lending-protocol-security/SKILL.md)
-- If protocol_type == 'dex_integration': Recommend DEX_INTEGRATION_SECURITY injectable (from ~/.claude/agents/skills/injectable/dex-integration-security/SKILL.md)
-- If protocol_type == 'governance': Recommend GOVERNANCE_ATTACK_VECTORS injectable (from ~/.claude/agents/skills/injectable/governance-attack-vectors/SKILL.md)
-- If protocol_type == 'nft': Recommend NFT_PROTOCOL_SECURITY injectable (from ~/.claude/agents/skills/injectable/nft-protocol-security/SKILL.md)
-- If protocol_type == 'account_abstraction': Recommend ACCOUNT_ABSTRACTION_SECURITY injectable (from ~/.claude/agents/skills/injectable/account-abstraction-security/SKILL.md)
-- If protocol_type == 'outcome_determinism': Recommend OUTCOME_DETERMINISM injectable (from ~/.claude/agents/skills/injectable/outcome-determinism/SKILL.md)
+- If protocol_type == 'vault': Recommend VAULT_ACCOUNTING injectable (from ~/.codex/plamen/agents/skills/injectable/vault-accounting/SKILL.md)
+- If protocol_type == 'lending': Recommend LENDING_PROTOCOL_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/lending-protocol-security/SKILL.md)
+- If protocol_type == 'dex_integration': Recommend DEX_INTEGRATION_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/dex-integration-security/SKILL.md)
+- If protocol_type == 'governance': Recommend GOVERNANCE_ATTACK_VECTORS injectable (from ~/.codex/plamen/agents/skills/injectable/governance-attack-vectors/SKILL.md)
+- If protocol_type == 'nft': Recommend NFT_PROTOCOL_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/nft-protocol-security/SKILL.md)
+- If protocol_type == 'account_abstraction': Recommend ACCOUNT_ABSTRACTION_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/account-abstraction-security/SKILL.md)
+- If protocol_type == 'outcome_determinism': Recommend OUTCOME_DETERMINISM injectable (from ~/.codex/plamen/agents/skills/injectable/outcome-determinism/SKILL.md)
 - Inject Into: See skill-index.md for merge target per injectable
 
 ### Niche Agent Binding Rules

@@ -1,14 +1,14 @@
 # Plamen Codex Adapter
 
-This directory contains Codex-compatible configuration files generated from the
-Plamen audit pipeline's Claude-side manifests. These files allow Plamen to run
-inside the [Codex CLI](https://github.com/openai/codex) in addition to Claude Code.
+This directory contains Codex-compatible configuration files generated for the
+Plamen audit pipeline. These files allow Plamen to run inside the
+[Codex CLI](https://github.com/openai/codex).
 
 ## Installation
 
 ```bash
 # From the Plamen repo directory:
-plamen install --codex
+plamen install
 
 # Or manually:
 python scripts/codex_adapter.py
@@ -35,8 +35,8 @@ codex
 
 ### What is shared (via symlink)
 
-The Plamen methodology files are shared between Claude Code and Codex via a
-symlink at `~/.codex/plamen/` pointing to the Plamen repo. This includes:
+The Plamen methodology files are shared with Codex via a symlink at
+`~/.codex/plamen/` pointing to the Plamen repo. This includes:
 
 - `prompts/` -- language-specific phase prompts (recon, inventory, depth, verification)
 - `agents/` -- depth agent definitions and skill files
@@ -52,8 +52,7 @@ symlink at `~/.codex/plamen/` pointing to the Plamen repo. This includes:
 
 ### Regenerating
 
-If you update Claude-side files (CLAUDE.md, mcp.json.example,
-agent definitions), regenerate the Codex files:
+If you update methodology files or agent definitions, regenerate the Codex files:
 
 ```bash
 python scripts/codex_adapter.py
@@ -62,13 +61,13 @@ python scripts/codex_adapter.py
 ## Current Limitations
 
 - **Phase 1 generator**: Most adapter output content is templated, not fully
-  derived from Claude-side manifests. MCP servers (from mcp.json.example)
+  derived from methodology manifests. MCP servers (from mcp.json.example)
   and agent role file lists (from agents/depth-*.md) are manifest-driven.
   AGENTS.md orchestrator rules, SKILL.md phase sequence, and agent
   developer_instructions are templated and must be updated manually when
-  Claude-side files change. Phase 2 goal is to derive more content from
-  CLAUDE.md and commands/plamen.md parsing.
-- **Model**: Codex uses `gpt-5.3-codex` (272K context) vs Claude Code's Opus (1M context).
+  methodology files change. Phase 2 goal is to derive more content from
+  AGENTS.md and commands/plamen.md parsing.
+- **Model**: Codex default context can be smaller than historical Opus runs.
   Thorough mode may require more careful context management.
 - **Thorough mode parity**: Several Thorough-only features are experimental or
   not yet implemented on Codex. See the Mode Support Status table in

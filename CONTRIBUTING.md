@@ -1,161 +1,95 @@
 # Contributing to Plamen
 
-Thank you for your interest in contributing to Plamen! This guide will help you get started.
+Thanks for helping improve Plamen. The project is now Codex-native: runtime
+instructions, generated adapter files, and docs should assume OpenAI Codex CLI
+and the `~/.codex/plamen/` methodology root.
 
 ## How Plamen Works
 
-Plamen is a multi-agent security auditing pipeline that runs on Claude Code or OpenAI Codex CLI. It consists of:
+Plamen is a deterministic multi-agent security auditing pipeline:
 
-- **Orchestration rules** (`rules/`) - Phase definitions, scoring models, report templates
-- **Language prompts** (`prompts/{evm,solana,aptos,sui,soroban}/`) - Per-chain agent prompts and templates
-- **Skills** (`agents/skills/`) - Methodology files that agents read at audit time
-- **Agent definitions** (`agents/depth-*.md`) - Depth agent role definitions
-- **MCP servers** (`custom-mcp/`) - Tool servers (RAG database, static analyzers)
-- **V2 driver scripts** (`scripts/`) - Python phase runner, parsers, validators, types
-- **L1 skills** (`agents/skills/injectable/l1/`) - L1 infrastructure audit methodology
-- **CLI wrapper** (`plamen.py`) - Terminal UI that launches audits
+- `plamen.py` provides the terminal wrapper and installer
+- `scripts/plamen_driver.py` owns phase sequencing and artifact gates
+- `scripts/plamen_types.py` defines phases, modes, and model tier aliases
+- `commands/` contains phase prompt surfaces used by the driver
+- `prompts/` and `rules/` contain audit methodology
+- `agents/` contains agent role definitions and skills
+- `codex-adapter/` contains generated Codex config, roles, commands, and skills
 
-## Ways to Contribute
+The driver is the sole owner of phase sequencing. Do not move phase-order
+policy into prompts or agent text.
 
-### 1. New Skills (Most Wanted)
+## High-Impact Contributions
 
-Skills are methodology files that teach agents HOW to analyze specific vulnerability classes. They live in `agents/skills/`.
+### Skills
 
-**Types:**
-- **Regular skills** (`agents/skills/{language}/{skill-name}/`) - Flag-triggered, loaded when code patterns are detected
-- **Injectable skills** (`agents/skills/injectable/{skill-name}/`) - Protocol-type-triggered, loaded for specific protocol categories
-- **Niche agents** (`agents/skills/niche/{skill-name}/`) - Standalone agents for focused analysis
+Skills teach agents how to analyze a vulnerability class. Good skills:
 
-**Skill quality bar:**
-- Teaches methodology (HOW to look), not patterns (WHAT to find)
-- Has clear trigger conditions (when should it activate?)
-- Includes a step execution checklist
-- Includes common false positives section
-- Under 300 lines (hard cap - context budget)
-- Has been tested on at least one real codebase
+- Explain methodology, not expected answers
+- Define trigger conditions
+- Include a step checklist
+- Include false positives
+- Stay under the local file-size cap
+- Have been tested on a real codebase
 
-**Format:** Each skill lives in a named folder: `agents/skills/{language}/{skill-name}/SKILL.md`. For skills over 500 lines, split into `SKILL.md` (core workflow) + reference files (`templates.md`, `advanced.md`) that `SKILL.md` points to. See any existing skill in `agents/skills/evm/` for the template.
+Place standard skills under `agents/skills/{language}/{skill}/SKILL.md`,
+injectable skills under `agents/skills/injectable/`, and focused niche skills
+under `agents/skills/niche/`.
 
-### 2. Scanner Checks
+### Scanner Checks
 
-Scanner templates (`prompts/{language}/phase4b-scanner-templates.md`) contain checklist-style checks. New checks should be:
-- Universal (applies to ALL contracts, not protocol-specific)
-- Under 5 lines
-- Low false positive rate
+Scanner templates live under `prompts/{language}/phase4b-scanner-templates.md`.
+New checks should be broad, low-noise, and short.
 
-### 3. Bug Reports
+### Driver and Wrapper Work
 
-Found a bug in the pipeline? File an issue with:
-- Audit mode used (Core/Thorough)
-- Language/chain
-- What went wrong (missed finding, false positive, crash, etc.)
-- Relevant scratchpad artifacts if possible
+Changes to `scripts/plamen_driver.py`, parsers, validators, or `plamen.py`
+should include focused regression coverage when possible. Keep runtime policy
+in Python, not duplicated in prompt prose.
 
-### 4. UI/Wrapper Improvements
+### L1 Methodology
 
-The CLI wrapper (`plamen.py`) and launch scripts are always open for UX improvements.
+L1 skills live under `agents/skills/injectable/l1/` and target Go/Rust node
+clients. They should use L1 evidence tags and the L1 severity matrix.
 
-### 5. MCP Server Improvements
-
-The unified-vuln-db MCP server (`custom-mcp/unified-vuln-db/`) powers RAG search. Contributions welcome for:
-- New vulnerability data sources
-- Better search/ranking algorithms
-- Performance improvements
-
-### 6. L1 Skills
-
-L1 infrastructure skills live in `agents/skills/injectable/l1/`. They cover blockchain node-client concerns: consensus safety, p2p networking, mempool analysis, RPC surfaces, validator lifecycle, state sync, and execution engines. L1 skills follow the same quality bar as SC skills but target Go and Rust codebases.
-
-### 7. Codex Backend
-
-Codex-specific commands (`codex-adapter/commands/`) and skill overrides (`codex-adapter/skills/`) adapt the pipeline for the OpenAI Codex CLI sandbox. Contributions welcome for Codex-specific UX and tool translation improvements.
-
-## Development Setup
-
-### Prerequisites
-
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) or [Codex CLI](https://github.com/openai/codex) installed
-- Python 3.11-3.12 (for CLI wrapper and MCP servers)
-- Node.js 18+ (for MCP servers)
-
-### Local Setup
+## Local Setup
 
 ```bash
-# Clone the repo
-git clone https://github.com/PlamenTSV/plamen.git ~/.plamen
-
-# Install into ~/.claude/ (Claude Code backend)
-cd ~/.plamen && python3 plamen.py install  # or 'python' on Windows
-
-# Install into ~/.codex/plamen/ (Codex backend, optional)
-plamen install --codex
-
-# Install CLI wrapper dependencies
-pip install rich InquirerPy
-
-# Install MCP server dependencies (Claude Code only — Codex uses tool translation)
-cd ~/.plamen/custom-mcp/unified-vuln-db
-pip install -e .
-
-# Run the CLI
-plamen.bat  # Windows
-./plamen.sh # Linux/macOS
+git clone --recurse-submodules https://github.com/PlamenTSV/plamen.git ~/.plamen
+cd ~/.plamen
+python3 plamen.py install
+plamen doctor
 ```
 
-> **After `git pull`**: Always run `plamen install` to refresh injected config files (`CLAUDE.md`, `settings.json`, `mcp.json` for Claude Code; `AGENTS.md`, `config.toml` for Codex). These are merged copies, not symlinks, and go stale without re-install. If using both backends, run `plamen install && plamen install --codex`. See [docs/updating.md](docs/updating.md).
+After `git pull`, always run:
 
-### Testing Your Changes
-
-**Skills:** Run a Core audit on a relevant test project and check the scratchpad for your skill's output.
-
-**Scanner checks:** Run a Core audit and grep the blind_spot scanner output for your check ID.
-
-**Wrapper:** Run `python plamen.py` and walk through the interactive flow.
-
-## Pull Request Process
-
-1. **Fork** the repository
-2. **Create a branch** from `main` (`git checkout -b feature/my-skill`)
-3. **Make your changes** following the guidelines above
-4. **Test** on at least one real codebase
-5. **Open a PR** using the PR template
-
-### PR Requirements
-
-- [ ] Changes are under the appropriate file size caps (see `rules/post-audit-improvement-protocol.md` Appendix A)
-- [ ] New skills include a step execution checklist and false positives section
-- [ ] No secrets, API keys, or credentials in the diff
-- [ ] Changes don't break existing skill triggers or agent definitions
-- [ ] Description explains WHY this change improves audit quality
-
-### Review Process
-
-1. Maintainer reviews for methodology quality and pipeline fit
-2. If skill/check: tested on a real codebase to verify detection rate and false positive rate
-3. Merged after approval
-
-## DCO (Developer Certificate of Origin)
-
-By contributing to this project, you certify that your contribution is your own work and you have the right to submit it under the MIT license. Sign off your commits:
-
-```
-git commit -s -m "Add new vault accounting skill"
+```bash
+plamen install
 ```
 
-This adds a `Signed-off-by: Your Name <your@email.com>` line to your commit message.
+Generated files such as `~/.codex/AGENTS.md` and `~/.codex/config.toml` are
+copies, not symlinks.
 
-## File Size Caps
+## Testing
 
-To prevent context bloat, these caps are enforced:
+Useful checks:
 
-| File Category | Cap |
-|---------------|-----|
-| Individual skills | 300 lines |
-| Scanner templates | 600 lines |
-| Depth templates | 250 lines |
-| Generic security rules | 1000 lines |
-| Recon prompt | 1100 lines |
+```bash
+python3 -m py_compile plamen.py scripts/plamen_types.py scripts/plamen_driver.py
+python3 scripts/test_structural_integrity.py
+python3 scripts/test_phase_containment_regression.py
+```
 
-## Questions?
+For methodology changes, run an audit on a relevant target and inspect
+`.scratchpad/` artifacts.
 
-Open a Discussion on GitHub or file an issue tagged `question`.
+## Pull Requests
+
+- Keep changes scoped to one concern
+- Avoid secrets or real API keys
+- Update generated Codex adapter files when generator inputs change
+- Explain why the change improves audit quality or runtime reliability
+- Include tests or a manual verification note
+
+By contributing, you certify that you have the right to submit the work under
+the project license.

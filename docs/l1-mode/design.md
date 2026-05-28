@@ -161,7 +161,7 @@ The Round 2 concern about gopls cold start on Windows is moot — Plamen never t
 
 ## 6. L1 injectable skill pack
 
-Skills live under `~/.claude/agents/skills/injectable/l1/` and load conditionally when `L1_PATTERN = true` is set by recon. Each skill is ≤100 lines per post-audit-improvement-protocol anti-bloat gates.
+Skills live under `~/.codex/plamen/agents/skills/injectable/l1/` and load conditionally when `L1_PATTERN = true` is set by recon. Each skill is ≤100 lines per post-audit-improvement-protocol anti-bloat gates.
 
 The pack is lifted from the OpenZeppelin infrastructure auditing checklist, cross-referenced with Sigma Prime's 8-layer attack surface model.
 
@@ -374,7 +374,7 @@ Diversity: 3 bug classes (p2p-dos, crypto, consensus-safety), 4 Go + 1 Rust, all
 ### Product questions still open
 
 1. **Should verification be optional in Light mode?** Phase 5 rewrite is heavy; Light mode users may prefer findings + CODE-TRACE only.
-2. **Does the Codex adapter need parallel L1 work?** Or does L1 mode land in Claude Code only for Phase 1 and backport later? (Likely the latter.)
+2. **Does the Codex adapter need parallel L1 work?** Or does L1 mode land in Codex CLI only for Phase 1 and backport later? (Likely the latter.)
 3. **How do we handle proprietary/audit-time forks** where the base client is not public? (Defer: out of scope for Phase 1.)
 
 ### Research debts being answered
@@ -407,7 +407,7 @@ The Round 2 concern was that gopls on native Windows is 15-25× slower than on W
 
 ### Runtime split
 
-- **Plamen orchestrator** (Python/Node): runs on whatever OS Claude Code runs on. Unchanged.
+- **Plamen orchestrator** (Python/Node): runs on whatever OS Codex CLI runs on. Unchanged.
 - **Tool-execution layer** (scip-go, rust-analyzer, ast-grep, Opengrep, BM25 MCPs, optional CodeQL): all cross-platform binaries or interpreted. Installed natively on the host OS.
 - **Target repos**: stored anywhere the user prefers. On Windows, native `C:\Users\...\targets\` is fine; no `/mnt/c` concern because we don't stream data through a VFS.
 

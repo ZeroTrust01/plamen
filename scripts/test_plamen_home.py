@@ -3,7 +3,7 @@
 Covers:
   - PLAMEN_HOME env var override
   - Script-relative detection (follows symlinks)
-  - Fallback to ~/.claude
+  - Fallback to ~/.codex/plamen
   - lru_cache behavior
   - resolve_v1_prompt() uses plamen_home()
   - _STANDALONE_V2_DIR uses plamen_home()
@@ -70,8 +70,8 @@ class TestPlamenHomeScriptRelative:
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("PLAMEN_HOME", None)
             result = plamen_home()
-            # plamen_types.py is at ~/.claude/scripts/plamen_types.py
-            # parent.parent = ~/.claude/ which has scripts/, rules/, prompts/
+            # plamen_types.py is at ~/.codex/plamen/scripts/plamen_types.py
+            # parent.parent = ~/.codex/plamen/ which has scripts/, rules/, prompts/
             expected = Path(T.__file__).resolve().parent.parent
             assert result == expected
 
@@ -83,7 +83,7 @@ class TestPlamenHomeScriptRelative:
 
 
 class TestPlamenHomeFallback:
-    def test_fallback_to_dot_claude(self, tmp_path):
+    def test_fallback_to_dot_codex_plamen(self, tmp_path):
         fake_script = tmp_path / "isolated" / "plamen_types.py"
         fake_script.parent.mkdir(parents=True)
         fake_script.write_text("# fake")
@@ -91,7 +91,7 @@ class TestPlamenHomeFallback:
             os.environ.pop("PLAMEN_HOME", None)
             with mock.patch.object(T, "__file__", str(fake_script)):
                 result = plamen_home()
-                assert result == Path.home() / ".claude"
+                assert result == Path.home() / ".codex" / "plamen"
 
 
 class TestPlamenHomeCaching:

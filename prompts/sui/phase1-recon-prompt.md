@@ -156,7 +156,7 @@ SCOPE_NOTES: {scope_notes_if_provided}
 
 ## TASK 0 Step 6: Fork Ancestry Research -- Sui Parent Packages
 
-Read ~/.claude/agents/skills/sui/fork-ancestry/SKILL.md (if exists) or apply the methodology below with Sui-specific parent detection:
+Read ~/.codex/plamen/agents/skills/sui/fork-ancestry/SKILL.md (if exists) or apply the methodology below with Sui-specific parent detection:
 
 ### Known Sui Parent Packages
 
@@ -290,7 +290,7 @@ SCRATCHPAD: {scratchpad}
 
 ## TASK 1: Build Environment
 
-> **PATH note**: On Windows, `sui` may not be in Claude Code's default PATH. Prefix Bash calls with: `export PATH="$HOME/.local/bin:$PATH" &&` if not found on first attempt.
+> **PATH note**: On Windows, `sui` may not be in Codex CLI's default PATH. Prefix Bash calls with: `export PATH="$HOME/.local/bin:$PATH" &&` if not found on first attempt.
 
 1. Check for Move.toml (primary manifest for Sui Move packages)
 1b. Verify toolchain availability before building:
@@ -852,12 +852,12 @@ Available conditional templates:
 
 ### Injectable Skills
 {List any injectable skills recommended based on protocol type classification}
-- If protocol_type == 'vault': Recommend VAULT_ACCOUNTING injectable (from ~/.claude/agents/skills/injectable/vault-accounting/SKILL.md)
-- If protocol_type == 'lending': Recommend LENDING_PROTOCOL_SECURITY injectable (from ~/.claude/agents/skills/injectable/lending-protocol-security/SKILL.md)
-- If protocol_type == 'dex_integration': Recommend DEX_INTEGRATION_SECURITY injectable (from ~/.claude/agents/skills/injectable/dex-integration-security/SKILL.md)
-- If protocol_type == 'governance': Recommend GOVERNANCE_ATTACK_VECTORS injectable (from ~/.claude/agents/skills/injectable/governance-attack-vectors/SKILL.md)
-- If protocol_type == 'nft': Recommend NFT_PROTOCOL_SECURITY injectable (from ~/.claude/agents/skills/injectable/nft-protocol-security/SKILL.md)
-- If protocol_type == 'outcome_determinism': Recommend OUTCOME_DETERMINISM injectable (from ~/.claude/agents/skills/injectable/outcome-determinism/SKILL.md)
+- If protocol_type == 'vault': Recommend VAULT_ACCOUNTING injectable (from ~/.codex/plamen/agents/skills/injectable/vault-accounting/SKILL.md)
+- If protocol_type == 'lending': Recommend LENDING_PROTOCOL_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/lending-protocol-security/SKILL.md)
+- If protocol_type == 'dex_integration': Recommend DEX_INTEGRATION_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/dex-integration-security/SKILL.md)
+- If protocol_type == 'governance': Recommend GOVERNANCE_ATTACK_VECTORS injectable (from ~/.codex/plamen/agents/skills/injectable/governance-attack-vectors/SKILL.md)
+- If protocol_type == 'nft': Recommend NFT_PROTOCOL_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/nft-protocol-security/SKILL.md)
+- If protocol_type == 'outcome_determinism': Recommend OUTCOME_DETERMINISM injectable (from ~/.codex/plamen/agents/skills/injectable/outcome-determinism/SKILL.md)
 - Inject Into: See skill-index.md for merge target per injectable
 - If vault detected → ZERO_STATE_RETURN **REQUIRED** (first-depositor analysis)
 

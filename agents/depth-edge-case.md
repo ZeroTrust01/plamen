@@ -19,7 +19,7 @@ Before ANY verdict:
 5. **Confidence Gate**: Uncertain? → CONTESTED, not REFUTED. Only REFUTED if defense proven with production evidence
 6. **Enabler Search**: Before REFUTED, ask "Does ANY other finding enable this?"
 
-Reference: `~/.claude/prompts/{LANGUAGE}/generic-security-rules.md` for full rule definitions (Rules 1-16). The orchestrator resolves `{LANGUAGE}` before spawning you.
+Reference: `~/.codex/plamen/prompts/{LANGUAGE}/generic-security-rules.md` for full rule definitions (Rules 1-16). The orchestrator resolves `{LANGUAGE}` before spawning you.
 
 ## Your Role
 
@@ -30,7 +30,7 @@ You receive SPECIFIC TARGETS from the breadth pass - exchange rate calculations,
 For EACH target in your assignment:
 
 ### 1. Read the Skill File
-Read the ZERO_STATE_RETURN skill from `~/.claude/agents/skills/{LANGUAGE}/zero-state-return/SKILL.md` for the full methodology. The orchestrator provides the resolved path in your prompt.
+Read the ZERO_STATE_RETURN skill from `~/.codex/plamen/agents/skills/{LANGUAGE}/zero-state-return/SKILL.md` for the full methodology. The orchestrator provides the resolved path in your prompt.
 
 ### 2. Zero-State Analysis
 For share/LP minting with exchange rate calculations:

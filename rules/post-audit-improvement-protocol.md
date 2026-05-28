@@ -184,7 +184,7 @@ Before applying ANY change of type `extend` or higher:
    - If YES → must compress/consolidate existing content first
 
 2. **Duplication check**: Does this change require touching 4+ files with near-identical text?
-   - If YES → consider whether the change belongs in a shared component (depth-state-trace.md, rules/, or CLAUDE.md) rather than per-tree files
+   - If YES → consider whether the change belongs in a shared component (depth-state-trace.md, rules/, or AGENTS.md) rather than per-tree files
    - Language-specific phrasing differences are fine; identical logic should not be duplicated
 
 3. **Marginal value check**: Would this check have caught the missed finding AND is it unlikely to produce false positives in general?
@@ -384,7 +384,7 @@ When running this protocol after an audit:
 | Individual skills | 31-309 lines | 300 | Injected into agent prompts alongside other content |
 | Recon prompt | 388-994 lines | 1100 | Largest per-tree file; recon agent gets dedicated context |
 | Inventory prompt | 222-287 lines | 350 | Single-purpose agent |
-| CLAUDE.md | 424 lines | 500 | Loaded into every conversation |
+| AGENTS.md | 424 lines | 500 | Loaded into every conversation |
 | Confidence scoring | 146 lines | 200 | Reference doc for scoring agent |
 | Chain prompt | 209 lines | 250 | Single-purpose agent |
 | Report prompts | 400 lines | 500 | Template for 3 parallel writers |

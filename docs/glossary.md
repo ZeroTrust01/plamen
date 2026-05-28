@@ -49,16 +49,16 @@ explained inline where it's used.
 
 ## Models & accounts
 
-- **MCP** — Model Context Protocol. Anthropic's protocol for plugging tools
-  (Slither, Solodit, ChromaDB, etc.) into Claude Code. Codex CLI supports a
+- **MCP** — Model Context Protocol. OpenAI's protocol for plugging tools
+  (Slither, Solodit, ChromaDB, etc.) into Codex CLI. Codex CLI supports a
   subset; see [`docs/mcp-servers.md`](mcp-servers.md).
 - **RAG** — retrieval-augmented generation. Plamen's vulnerability
   knowledge base built from Solodit + DefiHackLabs + Immunefi writeups.
   Built via `plamen rag` (~6GB RAM, 3–5 min). Optional but improves recall.
-- **Pro / Max** — Anthropic Claude subscription tiers in the audit-mode
+- **Pro / Max** — OpenAI Codex subscription tiers in the audit-mode
   table. Pro = ~5x weekly cap; Max = ~20x. Light mode is Pro-friendly;
   Core/Thorough generally need Max.
-- **Sonnet / Opus / Haiku** — Anthropic Claude model tiers. Cheaper /
+- **Sonnet / Opus / Haiku** — OpenAI Codex model tiers. Cheaper /
   faster / less capable in that order. Plamen picks per agent role per
   audit mode automatically.
 

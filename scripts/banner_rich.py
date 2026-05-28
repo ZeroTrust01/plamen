@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""PLAMEN startup banner — rich 256-color version for Claude Code testing."""
+"""PLAMEN startup banner — rich 256-color version for Codex CLI testing."""
 import sys, io, os
 
 # Windows: enable VT100 escape processing + force UTF-8 stdout

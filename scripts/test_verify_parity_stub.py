@@ -404,11 +404,11 @@ class TestRecoveryShard:
         from plamen_driver import _run_verify_recovery_shard
         assert callable(_run_verify_recovery_shard)
 
-    def test_recovery_returns_still_missing_on_no_claude(self, tmp_path: Path):
-        """When claude binary doesn't exist, recovery returns all IDs as still missing."""
+    def test_recovery_returns_still_missing_on_no_codex(self, tmp_path: Path):
+        """When codex binary doesn't exist, recovery returns all IDs as still missing."""
         import plamen_driver as D
-        old_bin = D.CLAUDE_BIN
-        D.CLAUDE_BIN = "/nonexistent/claude"
+        old_bin = D.CODEX_BIN
+        D.CODEX_BIN = ""
         try:
             _write_queue(tmp_path, [
                 {"finding_id": "H-01", "severity": "High", "title": "Bug A"},
@@ -425,13 +425,13 @@ class TestRecoveryShard:
             still_missing = D._run_verify_recovery_shard(config, missing)
             assert sorted(still_missing) == ["H-01", "M-01"]
         finally:
-            D.CLAUDE_BIN = old_bin
+            D.CODEX_BIN = old_bin
 
     def test_recovery_writes_manifest(self, tmp_path: Path):
         """Recovery shard writes verification_queue_recovery.md manifest."""
         import plamen_driver as D
-        old_bin = D.CLAUDE_BIN
-        D.CLAUDE_BIN = "/nonexistent/claude"
+        old_bin = D.CODEX_BIN
+        D.CODEX_BIN = ""
         try:
             _write_queue(tmp_path, [
                 {"finding_id": "H-01", "severity": "High", "title": "Bug A"},
@@ -450,13 +450,13 @@ class TestRecoveryShard:
             content = manifest.read_text(encoding="utf-8")
             assert "H-01" in content
         finally:
-            D.CLAUDE_BIN = old_bin
+            D.CODEX_BIN = old_bin
 
     def test_recovery_writes_prompt_snapshot(self, tmp_path: Path):
         """Recovery shard writes a prompt snapshot file."""
         import plamen_driver as D
-        old_bin = D.CLAUDE_BIN
-        D.CLAUDE_BIN = "/nonexistent/claude"
+        old_bin = D.CODEX_BIN
+        D.CODEX_BIN = ""
         try:
             _write_queue(tmp_path, [
                 {"finding_id": "M-01", "severity": "Medium", "title": "Bug"},
@@ -476,13 +476,13 @@ class TestRecoveryShard:
             assert "RECOVERY VERIFICATION SHARD" in content
             assert "M-01" in content
         finally:
-            D.CLAUDE_BIN = old_bin
+            D.CODEX_BIN = old_bin
 
     def test_recovery_then_stub_integration(self, tmp_path: Path):
         """Full flow: recovery fails → stub fills the gap."""
         import plamen_driver as D
-        old_bin = D.CLAUDE_BIN
-        D.CLAUDE_BIN = "/nonexistent/claude"
+        old_bin = D.CODEX_BIN
+        D.CODEX_BIN = ""
         try:
             _write_queue(tmp_path, [
                 {"finding_id": "H-01", "severity": "High", "title": "Bug A"},
@@ -511,13 +511,13 @@ class TestRecoveryShard:
             assert _verify_file_present_for_id(tmp_path, "H-01")
             assert _verify_file_present_for_id(tmp_path, "M-01")
         finally:
-            D.CLAUDE_BIN = old_bin
+            D.CODEX_BIN = old_bin
 
     def test_recovery_l1_prompt_uses_l1_template(self, tmp_path: Path):
         """L1 pipeline uses L1 verification template."""
         import plamen_driver as D
-        old_bin = D.CLAUDE_BIN
-        D.CLAUDE_BIN = "/nonexistent/claude"
+        old_bin = D.CODEX_BIN
+        D.CODEX_BIN = ""
         try:
             _write_queue(tmp_path, [
                 {"finding_id": "INV-001", "severity": "Critical", "title": "L1 Bug"},
@@ -536,4 +536,4 @@ class TestRecoveryShard:
                 content = snap.read_text(encoding="utf-8")
                 assert "RECOVERY VERIFICATION SHARD" in content
         finally:
-            D.CLAUDE_BIN = old_bin
+            D.CODEX_BIN = old_bin

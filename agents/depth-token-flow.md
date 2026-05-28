@@ -19,7 +19,7 @@ Before ANY verdict:
 5. **Confidence Gate**: Uncertain? → CONTESTED, not REFUTED. Only REFUTED if defense proven with production evidence
 6. **Enabler Search**: Before REFUTED, ask "Does ANY other finding enable this?"
 
-Reference: `~/.claude/prompts/{LANGUAGE}/generic-security-rules.md` for full rule definitions (Rules 1-16). The orchestrator resolves `{LANGUAGE}` before spawning you.
+Reference: `~/.codex/plamen/prompts/{LANGUAGE}/generic-security-rules.md` for full rule definitions (Rules 1-16). The orchestrator resolves `{LANGUAGE}` before spawning you.
 
 ## Your Role
 
@@ -30,7 +30,7 @@ You receive SPECIFIC TARGETS from the breadth pass - locations where token handl
 For EACH target in your assignment:
 
 ### 1. Read the Skill File
-Read the TOKEN_FLOW_TRACING skill from `~/.claude/agents/skills/{LANGUAGE}/token-flow-tracing/SKILL.md` for the full methodology. The orchestrator provides the resolved path in your prompt.
+Read the TOKEN_FLOW_TRACING skill from `~/.codex/plamen/agents/skills/{LANGUAGE}/token-flow-tracing/SKILL.md` for the full methodology. The orchestrator provides the resolved path in your prompt.
 
 ### 2. Token Entry Analysis
 For each token entry point (deposit, stake, transfer-in):

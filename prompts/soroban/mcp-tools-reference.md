@@ -5,7 +5,7 @@
 
 > **Mental model**: You are good at understanding INTENT and tracing LOGIC. Tools are good at EXHAUSTIVE ENUMERATION. You miss things when scanning large files manually. Tools never skip anything but can't understand intent. **Use both.**
 
-> **MCP TIMEOUT POLICY (MANDATORY)**: When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls to that provider - switch immediately to fallback (code analysis, grep, WebSearch). Claude Code's default tool timeout is 300s (configurable via `MCP_TOOL_TIMEOUT` in settings.json). You cannot cancel a pending call, but you control what happens after the error returns.
+> **MCP TIMEOUT POLICY (MANDATORY)**: When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls to that provider - switch immediately to fallback (code analysis, grep, WebSearch). Codex CLI's default tool timeout is 300s (configurable via `MCP_TOOL_TIMEOUT` in settings.json). You cannot cancel a pending call, but you control what happens after the error returns.
 
 ---
 
@@ -16,7 +16,7 @@
 | Tool | Why NOT for Soroban |
 |------|---------------------|
 | `mcp__slither-analyzer__*` | Slither is EVM/Solidity only. Soroban contracts are Rust/WASM. Will fail or produce nonsense. |
-| `mcp__farofino__slither_audit` | Same — Slither backend, EVM only. |
+| `mcp__farofino__slither_audit` | Same engine family, EVM only. |
 | `mcp__farofino__aderyn_audit` | Aderyn is Solidity only. |
 | `mcp__solana-fender__*` | Fender is Anchor/Solana only. Soroban SDK is completely different. |
 | `mcp__helius__*` | Helius is Solana RPC. Soroban runs on Stellar — different network, different account model. |

@@ -19,7 +19,7 @@ Before ANY verdict:
 4. **Cross-Domain Dependencies**: Identify 2-3 assumptions outside network layer (e.g., crypto validity, state consistency, peer identity). Tag as `[CROSS-DOMAIN-DEP: {domain}]`.
 5. **Evidence Quality**: Tag evidence `[FUZZ-PASS]`, `[LSP-TRACE]`, `[CODE-TRACE]`. `[CODE-TRACE]` caps at CONTESTED.
 
-Reference: `~/.claude/prompts/l1/generic-security-rules.md` if present.
+Reference: `~/.codex/plamen/prompts/l1/generic-security-rules.md` if present.
 
 ## Your Role
 
@@ -41,15 +41,15 @@ For EACH target, apply the relevant L1 skills:
 
 ### 1. Load the relevant skill(s)
 
-- P2P handler / discovery target → `~/.claude/agents/skills/injectable/l1/p2p-dos-and-eclipse/SKILL.md`
-- Mempool target → `~/.claude/agents/skills/injectable/l1/mempool-asymmetric-dos/SKILL.md`
-- RPC / Engine API target → `~/.claude/agents/skills/injectable/l1/rpc-surface-audit/SKILL.md`
+- P2P handler / discovery target → `~/.codex/plamen/agents/skills/injectable/l1/p2p-dos-and-eclipse/SKILL.md`
+- Mempool target → `~/.codex/plamen/agents/skills/injectable/l1/mempool-asymmetric-dos/SKILL.md`
+- RPC / Engine API target → `~/.codex/plamen/agents/skills/injectable/l1/rpc-surface-audit/SKILL.md`
 - Language supplement → `go-concurrency-safety/SKILL.md` (Go targets) or `rust-unsafe-audit/SKILL.md` (Rust targets)
 
 Add these skill loads when the target matches:
 
-- Peer scoring target -> `~/.claude/agents/skills/injectable/l1/peer-scoring-correctness/SKILL.md`
-- Gossip / seen-cache target -> `~/.claude/agents/skills/injectable/l1/gossip-cache-invariance/SKILL.md`
+- Peer scoring target -> `~/.codex/plamen/agents/skills/injectable/l1/peer-scoring-correctness/SKILL.md`
+- Gossip / seen-cache target -> `~/.codex/plamen/agents/skills/injectable/l1/gossip-cache-invariance/SKILL.md`
 
 ### 2. Attack surface enumeration
 

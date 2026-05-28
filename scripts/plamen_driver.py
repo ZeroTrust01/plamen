@@ -35,7 +35,7 @@ import plamen_display as display
 # exhaustion post-compaction matched the regex and caused the driver to
 # pause the pipeline when no API error had actually occurred.
 #
-# FIX: `claude -p --output-format json` writes a structured envelope as the
+# FIX: `codex exec --output-format json` writes a structured envelope as the
 # final stdout chunk. Parse that envelope and trust its fields:
 #   - `is_error: true` AND `api_error_status in (429, 529)` → rate limit
 #   - `stop_reason: "rate_limited"` / similar → rate limit
@@ -48,8 +48,7 @@ _API_RATE_LIMIT_STATUSES = {429, 529}  # 429 Too Many Requests, 529 Overloaded
 
 def _format_ai_model_summary(config: dict, active_phases: list[Phase], mode: str) -> str:
     """Return a concise runtime/model summary for the startup banner."""
-    backend = (config.get("cli_backend") or "claude").strip().lower()
-    backend_label = "Codex CLI" if backend == "codex" else "Claude Code"
+    backend_label = "Codex CLI"
 
     models: list[str] = []
     for phase in active_phases:
@@ -154,7 +153,7 @@ instructs you to "spawn agents" or "use the Task tool":
 
 ### Translation rules
 
-| Claude Code | Codex equivalent |
+| Codex CLI | Codex equivalent |
 |-------------|-----------------|
 | `Task(subagent_type="general-purpose", model="sonnet", prompt="...")` | `spawn_agent(prompt="...")` |
 | `Task(subagent_type="security-analyzer", prompt="...")` | `spawn_agent(prompt="...")` |
@@ -202,7 +201,7 @@ _CODEX_MULTI_AGENT_PHASES = CODEX_MULTI_AGENT_PHASES
 _CODEX_TOOL_POSIX = """\
 ## Tool Translation (Codex Runtime — POSIX)
 
-When instructions reference Claude Code tools, use these Codex equivalents:
+When instructions reference Codex CLI tools, use these Codex equivalents:
 - "Read tool" / "Read file" → `shell` tool: `cat -n <file>`
 - "Write tool" / "Write file" / create a new file →
     `shell` tool with heredoc:
@@ -220,7 +219,7 @@ When instructions reference Claude Code tools, use these Codex equivalents:
 _CODEX_TOOL_WINDOWS = """\
 ## Tool Translation (Codex Runtime — Windows / PowerShell)
 
-When instructions reference Claude Code tools, use these Codex equivalents:
+When instructions reference Codex CLI tools, use these Codex equivalents:
 - "Read tool" / "Read file" → `shell` tool: `Get-Content <file>` or `type <file>`
 - "Write tool" / "Write file" / create a new file →
     `shell` tool with PowerShell here-string:
@@ -488,8 +487,8 @@ def _translate_prompt_for_codex(prompt_text: str, *,
                                mode: str = "") -> str:
     """Translate Claude-specific prompt content for Codex runtime.
 
-    Path translation: only rewrite ~/.claude/ → ~/.codex/plamen/ when the
-    target directory actually exists on disk.  Otherwise keep ~/.claude/ as-is
+    Path translation: only rewrite ~/.codex/plamen/ → ~/.codex/plamen/ when the
+    target directory actually exists on disk.  Otherwise keep ~/.codex/plamen/ as-is
     — the Codex sandbox can read the entire filesystem, so the original paths
     resolve fine.
 
@@ -507,7 +506,7 @@ def _translate_prompt_for_codex(prompt_text: str, *,
     """
     codex_home = Path.home() / ".codex" / "plamen"
     if codex_home.is_dir():
-        translated = prompt_text.replace("~/.claude/", "~/.codex/plamen/")
+        translated = prompt_text.replace("~/.codex/plamen/", "~/.codex/plamen/")
         if sys.platform == "win32":
             home = str(Path.home()).replace("\\", "/")
             translated = translated.replace(
@@ -525,10 +524,10 @@ def _translate_prompt_for_codex(prompt_text: str, *,
             f"(e.g., mklink /D \"{codex_home}\" \"{Path.home() / '.claude'}\")"
         )
 
-    translated = translated.replace("claude -p subprocess", "codex exec subprocess")
-    translated = translated.replace("Claude Code's MCP timeout is 300s", "MCP tools are unavailable in this runtime")
+    translated = translated.replace("codex exec subprocess", "codex exec subprocess")
+    translated = translated.replace("Codex CLI's MCP timeout is 300s", "MCP tools are unavailable in this runtime")
     translated = translated.replace(
-        "Claude Code's tool timeout is set to 300s (5 min) via MCP_TOOL_TIMEOUT in settings.json to accommodate ChromaDB cold start.",
+        "Codex CLI's tool timeout is set to 300s (5 min) via MCP_TOOL_TIMEOUT in settings.json to accommodate ChromaDB cold start.",
         "MCP tools are unavailable in this runtime.",
     )
     translated = re.sub(
@@ -646,7 +645,7 @@ def _build_codex_cmd(effective_model: str, *, needs_mcp: bool = False,
     approval prompts and sandbox restrictions. Without this flag, `codex exec`
     auto-rejects all tool calls (apply_patch, shell) with "rejected by user
     approval settings" — making zero artifact writes possible. This is
-    Codex's equivalent of Claude Code's --dangerously-skip-permissions.
+    Codex's equivalent of Codex CLI's --dangerously-skip-permissions.
 
     The Plamen driver already controls the subprocess lifecycle, timeout, and
     output validation — the external orchestration IS the sandbox.
@@ -1277,8 +1276,8 @@ def _resume_phase_contract_issues(
 
 def _record_phase_cost(scratchpad: Path, phase_name: str, model: str,
                        attempt: int, stdio_log: Path, duration_s: float,
-                       backend: str = "claude") -> None:
-    """Parse the claude -p JSON envelope for cost + append to a ledger.
+                       backend: str = "codex") -> None:
+    """Parse the codex exec JSON envelope for cost + append to a ledger.
 
     Pure observability. Does not affect pipeline decisions. Envelope
     fields captured when present: total_cost_usd, num_turns, duration_ms,
@@ -1421,7 +1420,7 @@ def _restore_tier_body_from_overflow(scratchpad: Path, phase_name: str) -> bool:
 def _extract_json_envelope(tail_text: str) -> Optional[dict]:
     """Find the outermost JSON object in the tail and parse it.
 
-    `claude -p --output-format json` writes a single JSON object to stdout.
+    `codex exec --output-format json` writes a single JSON object to stdout.
     It is the last complete JSON in the log. Walk backward to find it.
     """
     # Scan backward for `{` then try to json.loads progressively.
@@ -1508,7 +1507,7 @@ _NOT_LOGGED_IN_RE = re.compile(
 def detect_not_logged_in(stdio_log: Path, tail_bytes: int = 65536) -> bool:
     """Return True iff the `claude` CLI emitted an authentication error.
 
-    Added in v2.0.1. An unauthenticated `claude -p` invocation returns
+    Added in v2.0.1. An unauthenticated `codex exec` invocation returns
     rc=0 (or rc!=0 on newer builds) with a "Not logged in" / "/login"
     message in its stdout. Without this detector the V2 driver retries
     the same subprocess and degrades the phase, masking the real cause.
@@ -1657,13 +1656,18 @@ def _run_verify_recovery_shard(
     full_prompt = recovery_directive + base_prompt
 
     # Resolve model and timeout.
-    effective_model = "sonnet"
+    effective_model = _resolve_codex_model_alias("sonnet")
     mode = config.get("mode", "core")
     if mode == "light":
-        effective_model = "sonnet"
+        effective_model = _resolve_codex_model_alias("sonnet")
     timeout = scale_timeout(
         1800, config["project_root"], config["language"],
-        mode=mode, hypothesis_count=len(missing),
+        mode=mode, hypothesis_count=len(missing), backend="codex",
+    )
+    full_prompt = _translate_prompt_for_codex(
+        full_prompt, phase_name="verify_recovery",
+        pipeline=config.get("pipeline", "sc"),
+        mode=mode,
     )
 
     # Write snapshot.
@@ -1674,44 +1678,24 @@ def _run_verify_recovery_shard(
         log.warning(f"[verify_recovery] snapshot write failed: {e}")
         return [fid for fid, _ in missing]
 
-    # Build subprocess command.
-    cmd = [
-        CLAUDE_BIN, "-p",
-        "--model", effective_model,
-        "--output-format", "json",
-        "--no-session-persistence",
-        "--dangerously-skip-permissions",
-        "--add-dir", config["project_root"],
-        "--add-dir", plamen_home().as_posix(),
-    ]
-
-    # Subprocess isolation (same as run_phase).
-    isolation_path = scratchpad / "_subprocess_isolation.json"
-    isolation_ok = False
-    try:
-        isolation_payload = '{"enabledPlugins":{},"hooks":{},"mcpServers":{}}'
-        if (
-            not isolation_path.exists()
-            or isolation_path.read_text(encoding="utf-8").strip()
-            != isolation_payload
-        ):
-            isolation_path.write_text(isolation_payload, encoding="utf-8")
-        isolation_ok = True
-    except Exception:
-        pass
-    cmd.extend(["--disallowedTools", "mcp__*"])
-    if isolation_ok:
-        iso = isolation_path.as_posix()
-        cmd.extend([
-            "--settings", iso,
-            "--strict-mcp-config", "--mcp-config", iso,
-        ])
+    if not CODEX_BIN:
+        log.warning("[verify_recovery] codex binary not found")
+        return [fid for fid, _ in missing]
+    for fid, _ in missing:
+        try:
+            (scratchpad / f"verify_{fid}.md").touch(exist_ok=True)
+        except OSError:
+            pass
+    output_last_message = str(scratchpad / "_codex_output_verify_recovery.attempt1.md")
+    cmd = _build_codex_cmd(
+        effective_model,
+        output_last_message=output_last_message,
+        writable_dirs=[scratchpad.as_posix(), Path(config["project_root"]).as_posix()],
+    )
 
     # Subprocess env.
     subprocess_env = {
         **os.environ,
-        "ANTHROPIC_DISABLE_AUTOUPDATE": "1",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL": PLAMEN_OPUS_MODEL,
         "PLAMEN_SCRATCHPAD": str(scratchpad),
     }
 
@@ -2056,7 +2040,7 @@ def _wait_with_heartbeat(
 
 # --- Core ---
 def run_phase(phase: Phase, config: dict, attempt: int) -> int:
-    """Spawn claude -p for the phase. Returns exit code or sentinel."""
+    """Spawn codex exec for the phase. Returns exit code or sentinel."""
     scratchpad = Path(config["scratchpad"])
     v1_prompt = resolve_v1_prompt(config["pipeline"])
     if not v1_prompt.exists():
@@ -2117,19 +2101,19 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
             except Exception:
                 pass
     # Codex backend: translate prompt paths and inject tool preamble.
-    backend = config.get("cli_backend", "claude")
+    backend = "codex"
+    config["cli_backend"] = "codex"
 
     timeout = scale_timeout(
         phase.base_timeout_s, config["project_root"], config["language"],
         mode=config.get("mode"), hypothesis_count=hyp_count,
         backend=backend,
     )
-    if backend == "codex":
-        prompt = _translate_prompt_for_codex(
-            prompt, phase_name=phase.name,
-            pipeline=config.get("pipeline", "sc"),
-            mode=config.get("mode", "core"),
-        )
+    prompt = _translate_prompt_for_codex(
+        prompt, phase_name=phase.name,
+        pipeline=config.get("pipeline", "sc"),
+        mode=config.get("mode", "core"),
+    )
 
     # Snapshot prompt — doubles as the subprocess stdin source (v2.1.3).
     # The snapshot file IS the authoritative prompt the child sees, so a
@@ -2150,125 +2134,51 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
     # Resolve effective model (Light forces sonnet; otherwise phase.model)
     effective_model = phase_model(phase, config["mode"], config)
 
-    if backend == "codex":
-        if not CODEX_BIN:
-            log.error(f"[{phase.name}] cli_backend=codex but codex binary not found")
-            return EXIT_ERROR
-        if not _codex_auth_available():
-            log.error(
-                f"[{phase.name}] Codex auth not found — `codex exec` will hang "
-                f"waiting for interactive login. Run `codex login` first, or set "
-                f"CODEX_API_KEY / OPENAI_API_KEY."
-            )
-            return EXIT_ERROR
-        if not _codex_prompt_fits(prompt, effective_model):
-            est_tokens = len(prompt) // 4
-            limit = _CODEX_CONTEXT_LIMITS.get(effective_model, 272_000)
-            log.warning(
-                f"[{phase.name}] prompt ~{est_tokens:,} tokens may exceed "
-                f"{effective_model} context ({limit:,} tokens). "
-                f"Codex hard-errors on context exceed (no silent truncation)."
-            )
-        # --output-last-message captures the final agent message to a file,
-        # providing reliable output extraction independent of JSONL parsing.
-        olm_path = str(scratchpad / f"_codex_output_{phase.name}.attempt{attempt}.md")
-        codex_writable = [scratchpad.as_posix(), Path(config["project_root"]).as_posix()]
-        # Pre-create expected artifact files so Codex's apply_patch (which
-        # cannot create new files) has valid targets. The model's preamble
-        # directs it to use shell+heredoc for new files, but models don't
-        # always follow instructions — pre-seeding is defensive.
-        _precreate_codex_artifacts(phase, scratchpad)
-        if config.get("_codex_skip_model"):
-            cmd = _build_codex_cmd_no_model(
-                needs_mcp=phase.needs_mcp,
-                output_last_message=olm_path,
-                writable_dirs=codex_writable,
-            )
-        else:
-            cmd = _build_codex_cmd(
-                effective_model, needs_mcp=phase.needs_mcp,
-                output_last_message=olm_path,
-                writable_dirs=codex_writable,
-            )
-    else:
-        cmd = [
-            CLAUDE_BIN, "-p",
-            "--model", effective_model,
-            "--output-format", "json",
-            "--no-session-persistence",
-            "--dangerously-skip-permissions",
-            "--add-dir", config["project_root"],
-            # Agents must read ~/.claude/rules/*.md, prompts/{lang}/*.md, and
-            # skills/**/SKILL.md. Add the Claude home explicitly so permission
-            # prompts never fire. v2.3.8 DRV-2: forward-slash form to keep
-            # CLI argv consistent across Windows/POSIX so MCP/path loaders
-            # don't silently mishandle backslashes.
-            "--add-dir", plamen_home().as_posix(),
-        ]
-    if not phase.needs_mcp and backend != "codex":
-        # Subprocess startup isolation for non-MCP phases (Claude Code only).
-        # Codex CLI has no --disallowedTools, --settings, --strict-mcp-config,
-        # or --mcp-config flags — it uses --ephemeral + --ignore-user-config.
-        #
-        # `claude -p` consults `~/.claude/settings.json` at startup and
-        # cold-starts everything declared there: MCP servers, plugins
-        # from external marketplaces (rust-analyzer-lsp, entry-point-
-        # analyzer), Pre/PostToolUse hooks, auto-update checks, etc. Any
-        # one of these can block indefinitely (network call, slow disk,
-        # heavy compile). The driver observed two production halts on a
-        # single audit (Irys L1 inventory: MCP class; AwesomeX SC
-        # inventory: plugin class) — 0 stdio + 0 tokens billed because
-        # the subprocess never reached the API.
-        #
-        # `--bare` would skip all of these in one flag but requires
-        # `ANTHROPIC_API_KEY` / `apiKeyHelper`; OAuth-only users (this
-        # user) can't use it.
-        #
-        # The robust path is `--settings <overlay>` + `--strict-mcp-config
-        # --mcp-config <empty>`. `--settings` overlays additional settings
-        # on the base config — empty `enabledPlugins`/`hooks`/`mcpServers`
-        # in the overlay disables those subsystems without touching the
-        # user's real settings.json (so OAuth keychain auth keeps working).
-        # `--strict-mcp-config` is belt-and-suspenders — it forces claude
-        # to load MCP from the empty file and ignore everything else.
-        #
-        # If an overlay write fails (disk-full / readonly / antivirus
-        # lock), the fall-through fail-open is "subprocess may still hang"
-        # — but visibly logged, not silent.
-        isolation_payload = (
-            '{"enabledPlugins":{},"hooks":{},"mcpServers":{}}'
+    if not CODEX_BIN:
+        log.error(f"[{phase.name}] Codex CLI binary not found")
+        return EXIT_ERROR
+    if not _codex_auth_available():
+        log.error(
+            f"[{phase.name}] Codex auth not found — `codex exec` will hang "
+            f"waiting for interactive login. Run `codex login` first, or set "
+            f"CODEX_API_KEY / OPENAI_API_KEY."
         )
-        isolation_path = scratchpad / "_subprocess_isolation.json"
-        isolation_ok = False
-        try:
-            if (
-                not isolation_path.exists()
-                or isolation_path.read_text(encoding="utf-8").strip()
-                != isolation_payload
-            ):
-                isolation_path.write_text(
-                    isolation_payload, encoding="utf-8"
-                )
-            isolation_ok = True
-        except Exception as _iso_err:
-            log.warning(
-                f"[{phase.name}] subprocess-isolation file write failed "
-                f"({_iso_err}) — settings.json plugins/hooks/mcp will "
-                f"load and may block the subprocess"
-            )
-        cmd.extend(["--disallowedTools", "mcp__*"])  # always, cheap
-        if isolation_ok:
-            iso = isolation_path.as_posix()
-            cmd.extend([
-                "--settings", iso,
-                "--strict-mcp-config", "--mcp-config", iso,
-            ])
+        return EXIT_ERROR
+    if not _codex_prompt_fits(prompt, effective_model):
+        est_tokens = len(prompt) // 4
+        limit = _CODEX_CONTEXT_LIMITS.get(effective_model, 272_000)
+        log.warning(
+            f"[{phase.name}] prompt ~{est_tokens:,} tokens may exceed "
+            f"{effective_model} context ({limit:,} tokens). "
+            f"Codex hard-errors on context exceed (no silent truncation)."
+        )
+    # --output-last-message captures the final agent message to a file,
+    # providing reliable output extraction independent of JSONL parsing.
+    olm_path = str(scratchpad / f"_codex_output_{phase.name}.attempt{attempt}.md")
+    codex_writable = [scratchpad.as_posix(), Path(config["project_root"]).as_posix()]
+    # Pre-create expected artifact files so Codex's apply_patch (which
+    # cannot create new files) has valid targets. The model's preamble
+    # directs it to use shell+heredoc for new files, but models don't
+    # always follow instructions — pre-seeding is defensive.
+    _precreate_codex_artifacts(phase, scratchpad)
+    if config.get("_codex_skip_model"):
+        cmd = _build_codex_cmd_no_model(
+            needs_mcp=phase.needs_mcp,
+            output_last_message=olm_path,
+            writable_dirs=codex_writable,
+        )
+    else:
+        cmd = _build_codex_cmd(
+            effective_model, needs_mcp=phase.needs_mcp,
+            output_last_message=olm_path,
+            writable_dirs=codex_writable,
+        )
 
     # Neutralize the V1 phase_gate watchdog — but ONLY if its breadcrumb
     # belongs to THIS run. The V1 L1 prompt initializes it via
     # `phase_gate.py --init`, which plants a breadcrumb at
-    # ~/.claude/hooks/.active_audit pointing at the current scratchpad.
-    # Subsequent claude -p subprocesses spawned by this driver inherit that
+    # ~/.codex/plamen/hooks/.active_audit pointing at the current scratchpad.
+    # Subsequent codex exec subprocesses spawned by this driver inherit that
     # watchdog, which blocks them on phases that don't write
     # `analysis_*.md` (caused A1/A7/A8 in the Irys L1 run). V2 has its own
     # Python gate; the V1 watchdog is harmful for V2 subprocesses.
@@ -2321,7 +2231,7 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
     log_path = scratchpad / f"_stdio_{phase.name}.attempt{attempt}.log"
     canonical = scratchpad / f"_stdio_{phase.name}.log"
 
-    _cli_label = "codex exec" if backend == "codex" else "claude -p"
+    _cli_label = "codex exec"
     log.info(
         f"[{phase.name}] spawning {_cli_label} (model={effective_model}, "
         f"timeout={timeout}s, attempt={attempt})"
@@ -2344,25 +2254,10 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
     # Windows (see Lib/subprocess.py::_communicate_on_windows). We are
     # using that same pattern but with the already-existing diagnostic
     # snapshot file — zero extra I/O.
-    # v2.3.8 DRV-3 + DRV-4: subprocess env tweaks.
-    # DRV-3 — `ANTHROPIC_DISABLE_AUTOUPDATE=1`: settings.json has
-    #   `autoUpdatesChannel: "latest"`, which causes claude -p to perform
-    #   an update-check network call on every startup. Across 30-60
-    #   subprocess spawns per Thorough audit this is silent overhead and,
-    #   if a mid-audit update changes the binary path, a stale
-    #   `CLAUDE_BIN` (resolved once at module import) breaks all
-    #   subsequent phases.
-    # DRV-4 — `PLAMEN_SCRATCHPAD`: lets `~/.claude/hooks/phase_gate.py`
-    #   take its env-var fast path for the V2-dormancy check instead of
-    #   doing filesystem I/O + JSON parse on every Task spawn. Saves
-    #   ~100-500ms per agent dispatch on Windows; on a 20-agent depth
-    #   phase that is several seconds of measurable overhead removed.
+    # Keep the scratchpad path explicit for subprocesses and any inherited
+    # helper scripts that need to find the current run state.
     subprocess_env = {
         **os.environ,
-        "ANTHROPIC_DISABLE_AUTOUPDATE": "1",
-        # Protect nested Claude Code alias resolution too: if a prompt or
-        # Task uses bare `opus`, keep it on the pinned Opus version.
-        "ANTHROPIC_DEFAULT_OPUS_MODEL": PLAMEN_OPUS_MODEL,
         "PLAMEN_SCRATCHPAD": str(scratchpad),
     }
     # On Windows, claude.cmd is a batch file; Popen without
@@ -2430,22 +2325,6 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
     log.info(f"[{phase.name}] subprocess exited rc={rc} after {duration:.0f}s")
     _record_phase_cost(scratchpad, phase.name, effective_model, attempt,
                         log_path, duration, backend=backend)
-    # v2.0.1: surface "Not logged in" before silently retrying. Without
-    # this the driver re-spawns the same unauthenticated CLI for every
-    # phase, exhausts the attempt budget, and degrades with an opaque
-    # error. EXIT_DEGRADED prints actionable next steps via the halt
-    # panel and lets the user `claude` interactively to fix.
-    if detect_not_logged_in(log_path):
-        log.error(
-            f"[{phase.name}] `claude` CLI not authenticated -- subprocess "
-            f"emitted /login or 'Not logged in'. Fix with EITHER (1) run "
-            f"`claude` interactively and complete `/login` (OAuth), OR "
-            f"(2) set the ANTHROPIC_API_KEY environment variable with a "
-            f"valid Anthropic Console API key. A key in "
-            f"~/.claude/settings.json is NOT read as credentials -- "
-            f"that file is for hooks/MCP/plugin config. Then resume."
-        )
-        sys.exit(EXIT_DEGRADED)
     return rc
 
 
@@ -2686,7 +2565,7 @@ def _run_phase_validators(
     if rc != 0:
         parity_issues = _validate_rc_parity(
             phase, scratchpad, rc,
-            backend=config.get("cli_backend", "claude"),
+            backend=config.get("cli_backend", "codex"),
         )
         if parity_issues:
             passed = False
@@ -3073,7 +2952,7 @@ def _run_phase_validators(
             config["project_root"],
             config.get("language", ""),
             config.get("subsystem_scope"),
-            backend=config.get("cli_backend", "claude"),
+            backend=config.get("cli_backend", "codex"),
             scope_file=config.get("scope_file"),
         )
         if coverage_issues:
@@ -3082,7 +2961,7 @@ def _run_phase_validators(
                 "recon coverage: " + "; ".join(coverage_issues)
             ]
         content_hard, content_soft = _validate_recon_content_structure(
-            scratchpad, backend=config.get("cli_backend", "claude"),
+            scratchpad, backend=config.get("cli_backend", "codex"),
         )
         if content_hard:
             passed = False
@@ -3098,7 +2977,7 @@ def _run_phase_validators(
             leftover_issues = _validate_scope_leftover(
                 scratchpad,
                 config.get("subsystem_scope"),
-                backend=config.get("cli_backend", "claude"),
+                backend=config.get("cli_backend", "codex"),
             )
             if leftover_issues:
                 log.warning(
@@ -3343,7 +3222,7 @@ def _run_phase_validators(
             )
             hint = _generate_depth_retry_hint(
                 depth_issues,
-                backend=config.get("cli_backend", "claude"),
+                backend=config.get("cli_backend", "codex"),
             )
             if hint:
                 _write_retry_hint(scratchpad, phase.name, hint)
@@ -3484,7 +3363,7 @@ def _run_phase_validators(
             )
             hint = _generate_depth_retry_hint(
                 depth_issues,
-                backend=config.get("cli_backend", "claude"),
+                backend=config.get("cli_backend", "codex"),
             )
             if hint:
                 _write_retry_hint(scratchpad, phase.name, hint)
@@ -3602,6 +3481,10 @@ def main():
         if key not in config:
             print(f"config missing required key: {key}", file=sys.stderr)
             sys.exit(EXIT_CONFIG_MISSING)
+    # First Codex-only pass: legacy configs may omit or set another backend.
+    # Normalize here so every downstream gate, prompt, and subprocess path uses
+    # the Codex route.
+    config["cli_backend"] = "codex"
 
     scratchpad = Path(config["scratchpad"])
     scratchpad.mkdir(parents=True, exist_ok=True)
@@ -3683,7 +3566,7 @@ def main():
             f"sentinel(s) from prior run: {', '.join(cleared_sentinels)}"
         )
     # Plant V2 marker BEFORE the first phase spawns. The phase_gate hook
-    # (~/.claude/hooks/phase_gate.py) detects `_v2_checkpoint.json` and
+    # (~/.codex/plamen/hooks/phase_gate.py) detects `_v2_checkpoint.json` and
     # stays dormant so it doesn't fight the driver's phase-scoped model.
     # Must happen BEFORE run_phase because the first phase's first Stop
     # hook fires before any phase writes artifacts.

@@ -10,12 +10,12 @@ description: "Launch the V2 deterministic L1 audit pipeline for Go/Rust node cli
 
 - If `$ARGUMENTS` is empty OR does NOT contain the literal token `wrapper-launch`:
   - **STOP processing this file.** Read and execute
-    `~/.claude/commands/plamen-l1-wizard.md` from its Step 1 onward, passing
+    `~/.codex/plamen/commands/plamen-l1-wizard.md` from its Step 1 onward, passing
     `$ARGUMENTS` through unchanged. The wizard collects L1 audit parameters
-    and launches `~/.claude/scripts/plamen_driver.py` with `pipeline=l1`.
+    and launches `~/.codex/plamen/scripts/plamen_driver.py` with `pipeline=l1`.
   - Do NOT run any of the Step 0..Step 6 sections below in interactive mode.
     Those sections are section-extracted by the driver one phase at a time
-    via `claude -p --resume` invocations with `wrapper-launch` set; they
+    via `codex exec --resume` invocations with `wrapper-launch` set; they
     are not a complete interactive pipeline.
 
 - If `$ARGUMENTS` contains `wrapper-launch`:
@@ -51,7 +51,7 @@ description: "Launch the V2 deterministic L1 audit pipeline for Go/Rust node cli
 
 ## Orchestration Protocol
 
-**MANDATORY**: Before starting any audit work, read and apply `~/.claude/rules/orchestrator-rules.md`. It contains the AUDIT MODES table, CRITICAL RULES 1-16, and the orchestration architecture. You are the orchestrator — those rules govern how you spawn agents, manage phases, and enforce completeness.
+**MANDATORY**: Before starting any audit work, read and apply `~/.codex/plamen/rules/orchestrator-rules.md`. It contains the AUDIT MODES table, CRITICAL RULES 1-16, and the orchestration architecture. You are the orchestrator — those rules govern how you spawn agents, manage phases, and enforce completeness.
 
 ## Step 0: L1 Audit Wizard
 
@@ -245,7 +245,7 @@ Include this block verbatim in every Thorough-mode depth agent prompt:
 >
 > The `{...}` tokens above are placeholders showing the schema — replace with REAL values from the codebase you are auditing. Do NOT copy the placeholder text verbatim. Cite real file paths from THIS audit's source tree, not from any example or prior audit.
 >
-> **One row per (skill, numbered-section) pair** for every skill listed in `template_recommendations.md` BINDING MANIFEST as `Required = YES` and routed to your role per `~/.claude/rules/skill-index.md` "Inject Into" column. Resolve the numbered sections by reading each skill's `SKILL.md` — sections start with `## N. Title`.
+> **One row per (skill, numbered-section) pair** for every skill listed in `template_recommendations.md` BINDING MANIFEST as `Required = YES` and routed to your role per `~/.codex/plamen/rules/skill-index.md` "Inject Into" column. Resolve the numbered sections by reading each skill's `SKILL.md` — sections start with `## N. Title`.
 >
 > **Allowed `Executed` values**:
 > - `yes` — section executed; Evidence MUST contain a `file:line` token (e.g. `block.rs:L45`). The driver hard-rejects ceremonial `yes` rows without `file:line` evidence.
@@ -284,7 +284,7 @@ SCRATCHPAD={PROJECT_ROOT}/.scratchpad
 mkdir -p "$SCRATCHPAD"
 export PLAMEN_SCRATCHPAD="$SCRATCHPAD"
 
-# Arm the violations log — every workflow violation per CLAUDE.md Rule 12 MUST be logged here.
+# Arm the violations log — every workflow violation per AGENTS.md Rule 12 MUST be logged here.
 # An empty violations.md is a HEALTHY signal (no skips). A missing violations.md is a
 # meta-violation (the gate that catches skips wasn't enforced).
 echo "# Plamen L1 violations log — initialized $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SCRATCHPAD/violations.md"
@@ -382,7 +382,7 @@ echo "SCIP_PREBAKE_FILES=$(ls $SCIP_DIR/*.md 2>/dev/null | wc -l)" >> "$SCRATCHP
 ### 1.5c: Opengrep Baseline
 
 ```bash
-opengrep --config ~/.claude/agents/skills/injectable/l1/_opengrep-rules/ \
+opengrep --config ~/.codex/plamen/agents/skills/injectable/l1/_opengrep-rules/ \
   --json {PROJECT_PATH} > "$SCRATCHPAD/opengrep_hits.json" 2>&1 || \
   echo '{"results":[],"errors":"opengrep unavailable"}' > "$SCRATCHPAD/opengrep_hits.json"
 ```
@@ -393,7 +393,7 @@ Record fallback status in `primitive_status.md` if unavailable.
 
 ## Step 2: L1 Recon
 
-Read `~/.claude/prompts/l1/phase1-recon-prompt.md`. Spawn 3 parallel recon agents (L1-1 threat model + fork ancestry, L1-2 subsystem map + attack surface + scope leftovers, L1-3 bake validation + Opengrep sweep). No RAG agent for L1.
+Read `~/.codex/plamen/prompts/l1/phase1-recon-prompt.md`. Spawn 3 parallel recon agents (L1-1 threat model + fork ancestry, L1-2 subsystem map + attack surface + scope leftovers, L1-3 bake validation + Opengrep sweep). No RAG agent for L1.
 
 After all three complete, write `$SCRATCHPAD/recon_summary.md` with:
 - `L1_PATTERN = true`
@@ -445,7 +445,7 @@ Soft cap: ≤3 for T1 scope. Log to `violations.md` if exceeded.
 
 ### 3c. Spawn
 
-For each layer, spawn ONE `general-purpose` Opus 4.6 agent (`model="claude-opus-4-6"`). Include the layer's skill set, paths to primitive artifacts, and the §WRITE-THEN-VERIFY directive. End with SCOPE CONTAINMENT.
+For each layer, spawn ONE `general-purpose` Opus 4.6 agent (`model="gpt-5.5"`). Include the layer's skill set, paths to primitive artifacts, and the §WRITE-THEN-VERIFY directive. End with SCOPE CONTAINMENT.
 
 After each agent returns, verify the file exists per §WRITE-THEN-VERIFY (`ls -lh` + `wc -l`). If missing, re-prompt for text fallback.
 
@@ -702,14 +702,14 @@ Spawn 5 depth agents in ONE message (all parallel), each as `general-purpose`:
 
 | Agent | Model | Reads (from `scip/`) | Skills |
 |---|---|---|---|
-| `depth-consensus-invariant` | claude-opus-4-6 | `call_graph_consensus.md`, `repo_map.md`, `xref_map.md` | consensus-safety, consensus-math-correctness (if difficulty / reward / EMA math detected), fork-choice, light-client, BLS, validator-lifecycle, hardfork, data-availability-enforcement (if `DATA_AVAILABILITY=true`) |
-| `depth-network-surface` | claude-opus-4-6 | `call_graph_p2p.md`, `concurrency_inventory.md`, `panic_sites.md` | p2p-dos, mempool, RPC |
-| `depth-state-trace` | claude-opus-4-6 | `call_graph_execution.md`, `type_hierarchy.md` | state-sync-pruning, execution-client-hardening |
+| `depth-consensus-invariant` | gpt-5.5 | `call_graph_consensus.md`, `repo_map.md`, `xref_map.md` | consensus-safety, consensus-math-correctness (if difficulty / reward / EMA math detected), fork-choice, light-client, BLS, validator-lifecycle, hardfork, data-availability-enforcement (if `DATA_AVAILABILITY=true`) |
+| `depth-network-surface` | gpt-5.5 | `call_graph_p2p.md`, `concurrency_inventory.md`, `panic_sites.md` | p2p-dos, mempool, RPC |
+| `depth-state-trace` | gpt-5.5 | `call_graph_execution.md`, `type_hierarchy.md` | state-sync-pruning, execution-client-hardening |
 | `depth-external` | sonnet | `xref_map.md`, `type_hierarchy.md` | dependency-audit-nodeclient, cross-environment-semantic-drift |
 | `depth-edge-case` | sonnet | `repo_map.md`, `xref_map.md` | zero-state, boundary checks |
 
 Each agent prompt includes:
-1. `Read ~/.claude/agents/depth-{role}.md` for full methodology
+1. `Read ~/.codex/plamen/agents/depth-{role}.md` for full methodology
 2. The §SCIP-PREBAKE directive (verbatim)
 3. The §WRITE-THEN-VERIFY directive
 4. SCOPE CONTAINMENT
@@ -851,7 +851,7 @@ design-stress: SKIPPED NO_APPLICABLE_FLAG (no BLS/consensus-crypto surface detec
 The parenthesised tail is free-form; the parser only reads the status word
 and the first `[A-Z_]+` reason token after it.
 
-Mandatory: if ANY uncertain finding is Medium+ severity, iter 2 MUST run. Iter 2 skip is a WORKFLOW VIOLATION per CLAUDE.md Rule 12. Log to `violations.md` if iter 2 is skipped despite qualifying findings.
+Mandatory: if ANY uncertain finding is Medium+ severity, iter 2 MUST run. Iter 2 skip is a WORKFLOW VIOLATION per AGENTS.md Rule 12. Log to `violations.md` if iter 2 is skipped despite qualifying findings.
 
 Before returning from Step 4b, write `{SCRATCHPAD}/depth_exit.md`.
 
@@ -946,7 +946,7 @@ Spawn ONE sonnet agent per `rules/phase4-confidence-scoring.md` §"Phase 4b.5". 
 ## Step 4d: Verification Queue Manifest (orchestrator inline)
 
 Read `findings_inventory.md`. Extract findings by mode:
-- **Thorough**: ALL severities (Critical, High, Medium, Low, Informational) + chain hypothesis IDs. Per CLAUDE.md Rule 12 ("Verification scope: ALL severities (with fuzz)") and `rules/phase5-poc-execution.md` Verification Completeness Assert.
+- **Thorough**: ALL severities (Critical, High, Medium, Low, Informational) + chain hypothesis IDs. Per AGENTS.md Rule 12 ("Verification scope: ALL severities (with fuzz)") and `rules/phase5-poc-execution.md` Verification Completeness Assert.
 - **Core**: Medium+ + chain hypothesis IDs.
 - **Light**: Medium+.
 
@@ -973,7 +973,7 @@ violations.md and skip Step 5.
 
 ## Step 4e: Semantic Dedup (L1 only — replaces SC chain grouping)
 
-Read `~/.claude/prompts/shared/v2/phase4e-semantic-dedup.md` for the full agent
+Read `~/.codex/plamen/prompts/shared/v2/phase4e-semantic-dedup.md` for the full agent
 prompt template.
 
 L1 has no chain analysis phase (Phase 4c removed). In SC, chain Agent 1's
@@ -1091,14 +1091,14 @@ After 5.3/5.4 (and 5.5 in Thorough), write `verify_core.md` as a summary index o
 
 ## Step 6: Report
 
-Read `~/.claude/rules/phase6-report-prompts.md` for full prompt templates.
+Read `~/.codex/plamen/rules/phase6-report-prompts.md` for full prompt templates.
 
 ### §L1-REPORT-OVERRIDES (MUST be appended verbatim to EVERY tier writer spawn prompt)
 
 ```
 ## L1 MODE OVERRIDES (MANDATORY — append to every finding section)
 
-1. **Severity matrix**: use `~/.claude/docs/l1-mode/severity-matrix.md`, NOT `rules/report-template.md`.
+1. **Severity matrix**: use `~/.codex/plamen/docs/l1-mode/severity-matrix.md`, NOT `rules/report-template.md`.
 2. **Mandatory `**Severity rationale**:` field on EVERY finding** (Critical / High / Medium / Low / Informational — no exceptions). Format:
    ```
    **Severity rationale**: Impact: {cell from matrix — e.g., "High — single-client consensus halt"} / Likelihood: {cell — e.g., "Medium — specific conditions"} / Modifiers: {list — e.g., "+1 for Byzantine stake ≥33%", or "none"} / Resulting tier: {final tier}

@@ -69,7 +69,7 @@ Agent(
 `depth_external`) have specialized `subagent_type` values in the
 manifest (`depth-token-flow`, etc.). Passing `general-purpose` for
 those rows would skip the role's auto-loaded base prompt and tool
-allowlist from `~/.claude/agents/depth-*.md` — a silent methodology
+allowlist from `~/.codex/plamen/agents/depth-*.md` — a silent methodology
 degradation. Always pass the exact `subagent_type` string from the
 manifest row.
 
@@ -111,9 +111,9 @@ Do NOT run chain analysis, verification, or reporting. Return and stop.
 ## Do-not-do list
 
 If you find yourself about to:
-- Read `~/.claude/prompts/*/phase4b-depth-templates.md` → STOP. Agent
+- Read `~/.codex/plamen/prompts/*/phase4b-depth-templates.md` → STOP. Agent
   prompts already include their methodology.
-- Read `~/.claude/prompts/*/phase4b-scanner-templates.md` → STOP. Same.
+- Read `~/.codex/plamen/prompts/*/phase4b-scanner-templates.md` → STOP. Same.
 - Read any `SKILL.md` file → STOP. Injectables are pre-attached.
 - Read source files → STOP. Subagents do that.
 - Apply Light mode overrides → STOP. The composer already did that.

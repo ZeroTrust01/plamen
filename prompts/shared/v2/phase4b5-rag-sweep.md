@@ -9,7 +9,7 @@ Execute the instructions below directly and stop. Do not spawn subagents.
 > STAGE, not an optional agent tool call.
 > **Budget**: 1 agent (not counted against depth budget).
 > **Reference (not load-bearing)**: Full scoring context is in
-> `~/.claude/rules/phase4-confidence-scoring.md`. Scoring formulas and
+> `~/.codex/plamen/rules/phase4-confidence-scoring.md`. Scoring formulas and
 > axis weightings are applied in a separate phase (`final_scoring`) —
 > your job is only to produce per-finding RAG scores.
 
@@ -63,7 +63,7 @@ If `validate_hypothesis` or `search_solodit_live` fails (API error, schema error
 
 ## MCP Timeout Policy
 
-When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls to that provider — switch immediately to fallback. Claude Code's tool timeout is set to 300s (5 min) via `MCP_TOOL_TIMEOUT` in `settings.json` to accommodate ChromaDB cold start. You cannot cancel a pending call — but you control what happens after the error returns.
+When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls to that provider — switch immediately to fallback. Codex CLI's tool timeout is set to 300s (5 min) via `MCP_TOOL_TIMEOUT` in `settings.json` to accommodate ChromaDB cold start. You cannot cancel a pending call — but you control what happens after the error returns.
 
 ---
 

@@ -4,7 +4,7 @@
 
 ```
                           +-----------------------------------+
-                          |  ORCHESTRATOR (CLAUDE.md/AGENTS.md)|
+                          |  ORCHESTRATOR (AGENTS.md/AGENTS.md)|
                           |  Detects language, reads phase     |
                           |  prompts, spawns agents,           |
                           |  enforces gates                    |
@@ -141,14 +141,16 @@ Index Agent (haiku) -> 3 Tier Writers (opus/sonnet) -> Assembler (haiku/sonnet) 
 
 ## Driver Architecture
 
-The pipeline is driven by `plamen_driver.py`, a Python outer loop that executes each phase as an isolated subprocess. Invoked via `/plamen-wizard` (Claude Code), `plamen` terminal wrapper (both backends), or directly:
+The pipeline is driven by `plamen_driver.py`, a Python outer loop that
+executes each phase as an isolated Codex subprocess. It is invoked via
+`/plamen-wizard`, the `plamen` terminal wrapper, or directly:
 
 ```
 plamen_driver.py
-  ├── Reads config.json (mode, scope, backend)
+  ├── Reads config.json (mode, scope, runtime)
   ├── For each phase:
   │     ├── Builds phase-specific prompt (strips forward refs)
-  │     ├── Launches `claude -p` (or `codex exec`) subprocess
+  │     ├── Launches `codex exec` subprocess
   │     ├── Waits for completion, checks artifact gates
   │     ├── Writes checkpoint to pipeline_checkpoint.md
   │     └── On failure: retry with hint → degrade → halt
@@ -158,14 +160,15 @@ plamen_driver.py
 Key properties:
 - **Resumable**: Re-run the driver command to resume from last checkpoint
 - **Phase-isolated**: Each subprocess sees only its own prompt section
-- **Backend-agnostic**: Supports Claude Code (`claude -p`) and Codex CLI (`codex exec`)
+- **Codex-native**: Uses `codex exec` and `~/.codex/plamen/` paths
 - **Deterministic gating**: Artifact existence checked mechanically, not by LLM
 
 ---
 
 ## L1 Pipeline Differences
 
-When running in L1 mode (`/plamen-l1-wizard` in Claude Code, or `plamen l1` from the terminal), the pipeline adjusts:
+When running in L1 mode (`/plamen-l1-wizard` in Codex, or `plamen l1` from
+the terminal), the pipeline adjusts:
 
 | SC Pipeline | L1 Pipeline | Reason |
 |-------------|-------------|--------|
@@ -181,12 +184,8 @@ See [l1-mode/design.md](l1-mode/design.md) for the complete L1 architecture.
 
 ---
 
-## Codex Backend
+## Codex Runtime
 
-The driver supports OpenAI Codex CLI as an alternative backend:
-
-- Prompts are rewritten: `~/.claude/` paths become `~/.codex/plamen/` equivalents
-- Tool calls are translated to Codex equivalents (via `codex_adapter.py`)
-- Sandbox constraints are adapted for Codex's execution model
-- Codex config lives at `~/.codex/plamen/` (symlinked from `~/.plamen/codex/`): `AGENTS.md` (orchestrator) and `config.toml` (settings), replacing Claude Code's `CLAUDE.md`, `settings.json`, and `mcp.json`
-- Install: `plamen install --codex`. The driver auto-detects the active backend via `plamen_home()`
+Codex config lives in `~/.codex/`: `AGENTS.md` for orchestrator rules,
+`config.toml` for model/sandbox/env/MCP settings, and `~/.codex/plamen/` for
+methodology files linked from `~/.plamen/`.

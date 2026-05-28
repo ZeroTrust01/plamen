@@ -38,7 +38,7 @@ better than no recon.
 
 ## TURN BUDGET POLICY - DRAFT-FIRST, ENRICH-LATER (MANDATORY)
 
-You run inside `claude -p` with a hard **--max-turns cap** (currently 80
+You run inside `codex exec` with a hard **--max-turns cap** (currently 80
 for recon) and a **--wall-clock timeout** (1500s for small projects,
 auto-scaled by the driver for larger ones). A single Read/Bash/Grep/Write
 call costs ONE turn. Large codebases (10k+ LOC, multiple programs) can
@@ -133,7 +133,7 @@ Continue to TASK 0.5 (Fork Ancestry) and then TASK 1.
 
 ## TASK 0.5: Fork Ancestry Research -- Solana Parent Programs
 
-Read ~/.claude/agents/skills/solana/fork-ancestry/SKILL.md and execute all 4 steps with Solana-specific parent detection:
+Read ~/.codex/plamen/agents/skills/solana/fork-ancestry/SKILL.md and execute all 4 steps with Solana-specific parent detection:
 
 ### Known Solana Parent Programs
 
@@ -162,7 +162,7 @@ Read ~/.claude/agents/skills/solana/fork-ancestry/SKILL.md and execute all 4 ste
 
 ## TASK 1: Build Environment
 
-> **PATH note**: On Windows, `solana`/`anchor`/`cargo-build-sbf` may not be in Claude Code's default PATH. Prefix Bash calls with: `export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$HOME/.cargo/bin:$PATH" &&` if not found on first attempt.
+> **PATH note**: On Windows, `solana`/`anchor`/`cargo-build-sbf` may not be in Codex CLI's default PATH. Prefix Bash calls with: `export PATH="$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$HOME/.cargo/bin:$PATH" &&` if not found on first attempt.
 
 1. Check for Anchor.toml, Cargo.toml, package.json
 1b. Verify toolchain availability before building:
@@ -412,7 +412,7 @@ Write to {SCRATCHPAD}/test_results.md
 
 ## TASK 10: Template Recommendations
 
-### Solana-Specific Templates (in ~/.claude/agents/skills/solana/)
+### Solana-Specific Templates (in ~/.codex/plamen/agents/skills/solana/)
 - ACCOUNT_VALIDATION -- **ALWAYS required** (signer/owner/type checks, constraint completeness)
 - CPI_SECURITY -- CPI flag (program ID validation, account forwarding, signer seeds, post-CPI reload)
 - PDA_SECURITY -- PDA flag (seed collision, bump canonicalization, PDA authority)
@@ -420,7 +420,7 @@ Write to {SCRATCHPAD}/test_results.md
 - TOKEN_2022_EXTENSIONS -- TOKEN_2022 flag (transfer hooks, confidential transfers, fees, mint close)
 - INSTRUCTION_INTROSPECTION -- INSTRUCTION_INTROSPECTION flag (introspection manipulation, relay attacks)
 
-### Shared Templates (in ~/.claude/agents/skills/)
+### Shared Templates (in ~/.codex/plamen/agents/skills/)
 - SEMI_TRUSTED_ROLES, TOKEN_FLOW_TRACING, SHARE_ALLOCATION_FAIRNESS, TEMPORAL_PARAMETER_STALENESS
 - ECONOMIC_DESIGN_AUDIT, EXTERNAL_PRECONDITION_AUDIT (adapted for CPI targets)
 - ORACLE_ANALYSIS (adapted for Pyth/Switchboard), FLASH_LOAN_INTERACTION
@@ -481,12 +481,12 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 
 ### Injectable Skills
 {List any injectable skills recommended based on protocol type classification}
-- If protocol_type == 'vault': Recommend VAULT_ACCOUNTING injectable (from ~/.claude/agents/skills/injectable/vault-accounting/SKILL.md)
-- If protocol_type == 'lending': Recommend LENDING_PROTOCOL_SECURITY injectable (from ~/.claude/agents/skills/injectable/lending-protocol-security/SKILL.md)
-- If protocol_type == 'dex_integration': Recommend DEX_INTEGRATION_SECURITY injectable (from ~/.claude/agents/skills/injectable/dex-integration-security/SKILL.md)
-- If protocol_type == 'governance': Recommend GOVERNANCE_ATTACK_VECTORS injectable (from ~/.claude/agents/skills/injectable/governance-attack-vectors/SKILL.md)
-- If protocol_type == 'nft': Recommend NFT_PROTOCOL_SECURITY injectable (from ~/.claude/agents/skills/injectable/nft-protocol-security/SKILL.md)
-- If protocol_type == 'outcome_determinism': Recommend OUTCOME_DETERMINISM injectable (from ~/.claude/agents/skills/injectable/outcome-determinism/SKILL.md)
+- If protocol_type == 'vault': Recommend VAULT_ACCOUNTING injectable (from ~/.codex/plamen/agents/skills/injectable/vault-accounting/SKILL.md)
+- If protocol_type == 'lending': Recommend LENDING_PROTOCOL_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/lending-protocol-security/SKILL.md)
+- If protocol_type == 'dex_integration': Recommend DEX_INTEGRATION_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/dex-integration-security/SKILL.md)
+- If protocol_type == 'governance': Recommend GOVERNANCE_ATTACK_VECTORS injectable (from ~/.codex/plamen/agents/skills/injectable/governance-attack-vectors/SKILL.md)
+- If protocol_type == 'nft': Recommend NFT_PROTOCOL_SECURITY injectable (from ~/.codex/plamen/agents/skills/injectable/nft-protocol-security/SKILL.md)
+- If protocol_type == 'outcome_determinism': Recommend OUTCOME_DETERMINISM injectable (from ~/.codex/plamen/agents/skills/injectable/outcome-determinism/SKILL.md)
 - Inject Into: See skill-index.md for merge target per injectable
 - If vault detected â†’ ZERO_STATE_RETURN **REQUIRED** (first-depositor analysis)
 

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 __all__ = [
-    "CLAUDE_BIN", "CODEX_BIN", "Checkpoint",
+    "CODEX_BIN", "Checkpoint",
     "plamen_home",
     "EVIDENCE_TAGS_PROOF", "EVIDENCE_TAGS_TRACE", "EVIDENCE_TAGS_FAIL",
     "EVIDENCE_TAGS_ALL", "EVIDENCE_TAG_DEFAULT", "EVIDENCE_TAG_NAMES_RE",
@@ -31,8 +31,7 @@ __all__ = [
     "_CODEX_MODEL_MAP", "_CODEX_FALLBACK_MODEL_ORDER",
     "_NEVER_CUT_SKIP_REASONS", "_PHASE_NAME_RE",
     "_VALID_MODES", "_VALID_PIPELINES", "_valid_report_shard_suffix",
-    "_resolve_claude_bin", "_resolve_codex_bin", "_resolve_codex_model_alias",
-    "_resolve_model_alias",
+    "_resolve_codex_bin", "_resolve_codex_model_alias",
     "_EXPANDABLE_TIERS",
     "expand_shard_phases",
     "has_mechanical_proof", "normalize_severity", "try_normalize_severity",
@@ -42,28 +41,6 @@ __all__ = [
 ]
 
 # --- Constants ---
-
-def _resolve_claude_bin() -> str:
-    """Return the platform-appropriate claude binary path.
-
-    Windows npm installs `claude.cmd`, not `claude`. Python's subprocess
-    without shell=True does NOT auto-append `.cmd`, so we have to find it.
-    """
-    override = os.environ.get("CLAUDE_BIN")
-    if override:
-        return override
-    import shutil
-    # Try each candidate; first one found wins.
-    for name in ("claude", "claude.cmd", "claude.exe"):
-        found = shutil.which(name)
-        if found:
-            return found
-    # Last resort — let the caller's FileNotFoundError propagate with a
-    # clear message.
-    return "claude"
-
-CLAUDE_BIN = _resolve_claude_bin()
-
 
 def _resolve_codex_bin() -> str:
     """Find the Codex CLI binary. Returns empty string if not installed."""
@@ -85,7 +62,7 @@ CODEX_BIN = _resolve_codex_bin()
 def plamen_home() -> Path:
     """Plamen installation root. Single source of truth for all path resolution.
 
-    Resolution: PLAMEN_HOME env -> script-relative -> ~/.claude fallback.
+    Resolution: PLAMEN_HOME env -> script-relative -> ~/.codex/plamen fallback.
     """
     env = os.environ.get("PLAMEN_HOME", "").strip()
     if env:
@@ -96,20 +73,12 @@ def plamen_home() -> Path:
     for marker in ("scripts", "rules", "prompts"):
         if (candidate / marker).is_dir():
             return candidate
-    return Path.home() / ".claude"
+    return Path.home() / ".codex" / "plamen"
 
 
-# Pin expensive Opus phases to 4.6 by default. Claude Code's bare `opus`
-# alias tracks latest, which moved to 4.7 and materially increased usage with
-# weak marginal audit lift. Override only when explicitly benchmarking.
-PLAMEN_OPUS_MODEL = os.environ.get("PLAMEN_OPUS_MODEL", "claude-opus-4-6").strip()
-
-
-def _resolve_model_alias(model: str) -> str:
-    m = (model or "").strip()
-    if m == "opus":
-        return PLAMEN_OPUS_MODEL or "claude-opus-4-6"
-    return m or "sonnet"
+# Historical name retained for modules that still import it for display text;
+# Codex-only execution maps Plamen's tier aliases through _CODEX_MODEL_MAP.
+PLAMEN_OPUS_MODEL = os.environ.get("PLAMEN_CODEX_OPUS_MODEL", "gpt-5.5").strip()
 
 
 _CODEX_MODEL_MAP: dict[str, str] = {
@@ -452,7 +421,7 @@ SC_VERIFY_CRITHIGH_PHASE_NAMES = (
 
 # Phases where the Codex backend should use spawn_agent for parallel sub-agents
 # instead of running everything sequentially as a single agent. These are the
-# orchestrator phases that spawn multiple analysis agents in the Claude pipeline.
+# orchestrator phases that spawn multiple analysis agents in the Codex pipeline.
 CODEX_MULTI_AGENT_PHASES: frozenset[str] = frozenset({
     "recon",
     "breadth",
@@ -469,7 +438,7 @@ class Phase:
     section_markers: list              # Headings to tell the LLM to run, e.g. ["## Step 1", "## Step 2"]
     expected_artifacts: list           # Glob patterns, e.g. ["recon_summary.md", "depth_*_findings.md"]
     base_timeout_s: int                # Base wall-clock timeout for this phase
-    model: str = "sonnet"              # claude -p --model value for Core/Thorough. Light forces sonnet.
+    model: str = "sonnet"              # Plamen model tier alias. Light forces sonnet.
     needs_mcp: bool = False            # Only rag_sweep
     modes: set = field(default_factory=lambda: {"light", "core", "thorough"})
     min_artifact_bytes: int = 100      # Gate fails if any matched file is smaller
@@ -513,31 +482,28 @@ def phase_model(phase: Phase, mode: str, config: Optional[dict] = None) -> str:
     Light mode forces all phases to sonnet regardless of phase.model
     (Light is a Pro-plan-compatible budget; opus is Max-plan).
     Core/Thorough honor the phase-level model.
-    For Codex backend, maps tier aliases to OpenAI model IDs.
+    Codex-only: maps Plamen's tier aliases to OpenAI model IDs.
     """
-    if config and config.get("cli_backend") == "codex":
-        tier = "sonnet" if mode == "light" else (phase.model or "sonnet")
-        resolved = _resolve_codex_model_alias(tier)
-        phase_fallbacks = config.get("_codex_phase_model_fallbacks") or {}
-        if isinstance(phase_fallbacks, dict) and phase.name in phase_fallbacks:
-            return phase_fallbacks[phase.name]
-        # If a model was found unavailable, downgrade only phases that would
-        # use it — sonnet/haiku-tier phases keep their natural model.
-        unavail = config.get("_codex_model_unavailable")
-        if unavail and resolved == unavail:
-            return config.get("_codex_model_fallback", _CODEX_MODEL_MAP.get("sonnet", "gpt-5.4"))
-        return resolved
-    if mode == "light":
-        return "sonnet"
-    if config and phase.name == "breadth":
+    config = config or {}
+    tier = "sonnet" if mode == "light" else (phase.model or "sonnet")
+    if mode != "light" and phase.name == "breadth":
         override = (
             config.get("breadth_model_override")
             or os.environ.get("PLAMEN_BREADTH_MODEL_OVERRIDE")
             or ""
         ).strip()
         if override:
-            return _resolve_model_alias(override)
-    return _resolve_model_alias(phase.model)
+            tier = override
+    resolved = _resolve_codex_model_alias(tier)
+    phase_fallbacks = config.get("_codex_phase_model_fallbacks") or {}
+    if isinstance(phase_fallbacks, dict) and phase.name in phase_fallbacks:
+        return phase_fallbacks[phase.name]
+    # If a model was found unavailable, downgrade only phases that would
+    # use it — sonnet/haiku-tier phases keep their natural model.
+    unavail = config.get("_codex_model_unavailable")
+    if unavail and resolved == unavail:
+        return config.get("_codex_model_fallback", _CODEX_MODEL_MAP.get("sonnet", "gpt-5.4"))
+    return resolved
 
 
 @dataclass

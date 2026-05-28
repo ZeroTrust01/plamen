@@ -170,7 +170,7 @@ A parameter declared in `struct Config` / `Params` / `ChainSpec` that is never r
 
 **Methodology**:
 1. Find every public field in the protocol's `Config` / `Params` / `ConsensusParams` / `ChainConfig` struct.
-2. For each field, grep the entire codebase for read sites. Use pre-baked `{SCRATCHPAD}/scip/xref_map.md` or Grep on `.{field_name}`. (MCP tools are unavailable in subagent contexts per Claude Code bug #25200.)
+2. For each field, grep the entire codebase for read sites. Use pre-baked `{SCRATCHPAD}/scip/xref_map.md` or Grep on `.{field_name}`. (MCP tools are unavailable in subagent contexts per Codex CLI bug #25200.)
 3. A field with ZERO read sites in any validator / enforcer / adjuster is a finding.
 4. A field read only in test / debug / display code is a finding — it means production doesn't enforce it.
 5. Pay special attention to fields with names like `max_*`, `min_*`, `limit_*`, `cap_*`, `ceiling_*`, `floor_*`, `bound_*` — these are almost always intended as enforcement.

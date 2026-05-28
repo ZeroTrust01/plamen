@@ -61,7 +61,7 @@ Before writing ANY code, answer:
 
 ## STEP 2: Write the Test
 
-Read the VERIFICATION_PROTOCOL skill from `~/.claude/agents/skills/{LANGUAGE}/verification-protocol/SKILL.md` for language-specific PoC templates and test structure. The orchestrator resolves `{LANGUAGE}` before spawning you.
+Read the VERIFICATION_PROTOCOL skill from `~/.codex/plamen/agents/skills/{LANGUAGE}/verification-protocol/SKILL.md` for language-specific PoC templates and test structure. The orchestrator resolves `{LANGUAGE}` before spawning you.
 
 **Test types** (language-agnostic structure):
 
@@ -145,4 +145,4 @@ Before ANY verdict:
 4. **Confidence Gate**: Uncertain? → CONTESTED, not REFUTED. Only REFUTED if defense proven with production evidence
 5. **Enabler Search**: Before REFUTED, ask "Does ANY other finding enable this?"
 
-Reference: `~/.claude/prompts/{LANGUAGE}/generic-security-rules.md` for full rule definitions. The orchestrator resolves `{LANGUAGE}` before spawning you.
+Reference: `~/.codex/plamen/prompts/{LANGUAGE}/generic-security-rules.md` for full rule definitions. The orchestrator resolves `{LANGUAGE}` before spawning you.

@@ -5,7 +5,7 @@
 > **Trigger**: After ALL standard Phase 5 verifiers complete.
 > **Purpose**: Adversarial re-verification of HIGH and CRITICAL findings via
 > inversion mandate and judge escalation.
-> **Read templates from**: `~/.claude/prompts/{LANGUAGE}/phase5-verification-prompt.md`
+> **Read templates from**: `~/.codex/plamen/prompts/{LANGUAGE}/phase5-verification-prompt.md`
 > -> "Skeptic-Judge Verification" section for language-specific details.
 
 ---

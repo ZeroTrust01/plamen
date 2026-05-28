@@ -10,7 +10,7 @@ on:
 
 jobs:
   # F2 regression guard: `plamen install` must complete cleanly without a
-  # controlling terminal. Claude Code's Bash tool, Codex shells, and CI all
+  # controlling terminal. Codex shells and CI both
   # run with stdin redirected from /dev/null. The wizard's InquirerPy picker
   # crashes there with `OSError: [Errno 22]`; install must NOT touch it.
   non-tty-install:
@@ -41,9 +41,8 @@ jobs:
         shell: bash
         run: |
           python plamen.py install < /dev/null
-      - name: plamen install --codex (non-TTY)
-        # F1 regression guard: Codex adapter generator must not NameError
-        # on undefined f-string placeholders.
+      - name: plamen install with compatibility flag (non-TTY)
+        # F1 regression guard: the legacy --codex flag remains a no-op alias.
         shell: bash
         run: |
           python plamen.py install --codex < /dev/null
@@ -95,17 +94,17 @@ jobs:
           esac
       - name: Verify wizards + docs use python3 (no bare `python` for the driver)
         # Regression guard. Exit code 127 ("command not found") was hit on
-        # Linux + macOS because wizards hardcoded `python ~/.claude/scripts/
+        # Linux + macOS because wizards hardcoded `python ~/.codex/plamen/scripts/
         # plamen_driver.py` while POSIX defaults to `python3`. The bare
         # `python` form only works on Windows (and on POSIX distros that
         # installed the `python-is-python3` shim, which is not default).
         shell: bash
         run: |
           set -e
-          BAD=$(grep -rnE 'python ~/(\.claude|\.plamen)/scripts/plamen_driver\.py' \
+          BAD=$(grep -rnE 'python ~/\.plamen/scripts/plamen_driver\.py' \
               commands/ docs/ rules/ README.md SETUP.md 2>&1 || true)
           # Filter out lines where `python` is preceded by `python3` (e.g.
-          # `python3 ~/.claude/...`) — grep PCRE lookbehind isn't on every
+          # `python3 ~/.codex/plamen/...`) — grep PCRE lookbehind isn't on every
           # runner, so do it as a second pass.
           BAD=$(echo "$BAD" | grep -v "python3 ~/" || true)
           if [ -n "$BAD" ]; then

@@ -9,7 +9,7 @@ description: "Phase 4b: L1 Depth Loop — 5-Agent Architecture with SCIP Pre-Bak
 > `depth-consensus-invariant` and `depth-network-surface` while retaining
 > `depth-state-trace`, `depth-external`, and `depth-edge-case`.
 >
-> **Invoked by**: `claude -p` with this file as the prompt. The driver resolves placeholders
+> **Invoked by**: `codex exec` with this file as the prompt. The driver resolves placeholders
 > and appends skill files via `--append-system-prompt-file`.
 > **Outputs**: `{SCRATCHPAD}/depth_{role}_findings.md` per agent, plus scanner and niche outputs.
 
@@ -101,7 +101,7 @@ ITERATION: 1
 
 ## Methodology
 
-Read ~/.claude/agents/depth-{ROLE}.md for your full analysis methodology.
+Read ~/.codex/plamen/agents/depth-{ROLE}.md for your full analysis methodology.
 Follow every section and step — do not summarize or skip.
 
 ## SCIP Pre-Bake Directive
@@ -152,7 +152,7 @@ to reserve the file.
 
 Write all findings to {SCRATCHPAD}/depth_{ROLE}_findings.md.
 Use finding IDs: [D{ROLE_ABBREV}-1], [D{ROLE_ABBREV}-2], ...
-Use standard finding format from ~/.claude/rules/finding-output-format.md.
+Use standard finding format from ~/.codex/plamen/rules/finding-output-format.md.
 
 Include Depth Evidence tags on every finding:
   [BOUNDARY:X=val], [VARIATION:param A->B], [TRACE:path->outcome], [LSP-TRACE]
@@ -181,12 +181,12 @@ Do NOT return your full output as text — the orchestrator's context budget is 
 In addition to the 5 depth agents, the driver spawns scanners and niche agents from
 `{SCRATCHPAD}/instantiation.json` (produced by Phase 2).
 
-**Scanner agents**: Use L1 scanner templates from `~/.claude/prompts/l1/phase4b-scanner-templates.md`.
+**Scanner agents**: Use L1 scanner templates from `~/.codex/plamen/prompts/l1/phase4b-scanner-templates.md`.
 Use `{LANGUAGE}` only as the implementation language for toolchain/build commands.
 (L1 mode uses the same scanner infrastructure as smart-contract mode, adapted for Go/Rust).
 
 **Niche agents**: Spawned based on flags in `{SCRATCHPAD}/template_recommendations.md`.
-Each niche agent reads its SKILL.md from `~/.claude/agents/skills/niche/{NAME}/SKILL.md`.
+Each niche agent reads its SKILL.md from `~/.codex/plamen/agents/skills/niche/{NAME}/SKILL.md`.
 Each costs 1 depth budget slot.
 
 All scanners and niche agents use the same SCIP Pre-Bake Directive and
@@ -226,7 +226,7 @@ has fewer than 2 entries, the agent degraded. Log but do not block.
 
 ### Thorough-Only: Iteration 2 (Devil's Advocate)
 
-Per `~/.claude/rules/phase4-confidence-scoring.md` "Hard Devil's Advocate Role":
+Per `~/.codex/plamen/rules/phase4-confidence-scoring.md` "Hard Devil's Advocate Role":
 
 For each UNCERTAIN finding (composite < 0.7) in `{SCRATCHPAD}/confidence_scores.md`:
 1. Extract evidence-only card (no verdicts, no reasoning contamination)
