@@ -325,13 +325,12 @@ def _skip_backend_prompt() -> bool:
 def _wizard_model_summary(backend: str, mode: str = "") -> str:
     """Short model line for the launch summary."""
     mode = (mode or "").strip().lower()
-    sonnet = os.environ.get("PLAMEN_CODEX_SONNET_MODEL", "gpt-5.4").strip()
+    sonnet = os.environ.get("PLAMEN_CODEX_SONNET_MODEL", "gpt-5.5").strip()
     if mode == "light":
         return f"Codex CLI / {sonnet}"
     opus = os.environ.get("PLAMEN_CODEX_OPUS_MODEL", "gpt-5.5").strip()
-    haiku = os.environ.get("PLAMEN_CODEX_HAIKU_MODEL", "gpt-5.4-nano").strip()
-    haiku_label = "nano" if haiku == "gpt-5.4-nano" else haiku
-    return f"Codex CLI / {opus}, {sonnet}, {haiku_label}"
+    haiku = os.environ.get("PLAMEN_CODEX_HAIKU_MODEL", "gpt-5.5").strip()
+    return f"Codex CLI / {opus}, {sonnet}, {haiku}"
 
 
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')

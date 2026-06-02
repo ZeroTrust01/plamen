@@ -83,8 +83,8 @@ PLAMEN_OPUS_MODEL = os.environ.get("PLAMEN_CODEX_OPUS_MODEL", "gpt-5.5").strip()
 
 _CODEX_MODEL_MAP: dict[str, str] = {
     "opus": os.environ.get("PLAMEN_CODEX_OPUS_MODEL", "gpt-5.5"),
-    "sonnet": os.environ.get("PLAMEN_CODEX_SONNET_MODEL", "gpt-5.4"),
-    "haiku": os.environ.get("PLAMEN_CODEX_HAIKU_MODEL", "gpt-5.4-mini"),
+    "sonnet": os.environ.get("PLAMEN_CODEX_SONNET_MODEL", "gpt-5.5"),
+    "haiku": os.environ.get("PLAMEN_CODEX_HAIKU_MODEL", "gpt-5.5"),
 }
 
 _CODEX_FALLBACK_MODEL_ORDER: tuple[str, ...] = tuple(dict.fromkeys(
@@ -502,7 +502,7 @@ def phase_model(phase: Phase, mode: str, config: Optional[dict] = None) -> str:
     # use it — sonnet/haiku-tier phases keep their natural model.
     unavail = config.get("_codex_model_unavailable")
     if unavail and resolved == unavail:
-        return config.get("_codex_model_fallback", _CODEX_MODEL_MAP.get("sonnet", "gpt-5.4"))
+        return config.get("_codex_model_fallback", _CODEX_MODEL_MAP.get("sonnet", "gpt-5.5"))
     return resolved
 
 

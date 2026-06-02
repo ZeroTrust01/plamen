@@ -219,10 +219,10 @@ def generate_config_toml(out_dir: Path) -> None:
     lines = [
         '# Model for the orchestrator and agents that inherit from global config.',
         '# Change to match your Codex account:',
-        '#   API accounts:       "gpt-5.3-codex", "o4-mini"',
+        '#   API accounts:       "gpt-5.5", "o4-mini"',
         '#   ChatGPT Plus/Pro:   run `codex --available-models` for supported models',
         '#   Common alternatives: "gpt-4.1", "o4-mini"',
-        'model = "gpt-5.3-codex"',
+        'model = "gpt-5.5"',
         'model_context_window = 272000',
         'approval_mode = "full-auto"',
         'approval_policy = "never"',
@@ -396,8 +396,8 @@ try:
 except ImportError:
     CODEX_MODEL_TIERS: dict[str, str] = {
         "opus": os.environ.get("PLAMEN_CODEX_OPUS_MODEL", "gpt-5.5"),
-        "sonnet": os.environ.get("PLAMEN_CODEX_SONNET_MODEL", "gpt-5.4-mini"),
-        "haiku": os.environ.get("PLAMEN_CODEX_HAIKU_MODEL", "gpt-5.4-nano"),
+        "sonnet": os.environ.get("PLAMEN_CODEX_SONNET_MODEL", "gpt-5.5"),
+        "haiku": os.environ.get("PLAMEN_CODEX_HAIKU_MODEL", "gpt-5.5"),
     }
 
 # Role definitions: (filename, name, description, developer_instructions)

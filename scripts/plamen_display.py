@@ -577,7 +577,7 @@ def print_failure_diagnosis(phase_name: str, scratchpad: str,
         return
 
     from plamen_types import _CODEX_MODEL_MAP
-    diag_model = _CODEX_MODEL_MAP.get("sonnet", "gpt-5.4-mini")
+    diag_model = _CODEX_MODEL_MAP.get("sonnet", "gpt-5.5")
     cmd = [
         codex_bin, "exec",
         "--model", diag_model,

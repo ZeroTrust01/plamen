@@ -226,7 +226,7 @@ def test_A1b_ai_model_summary_lists_unique_codex_models():
     ]
     summary = D._format_ai_model_summary({"cli_backend": "codex"}, phases, "thorough")
     check("A1b AI model summary lists unique Codex models",
-          summary == "Codex CLI / gpt-5.4, gpt-5.5, gpt-5.4-mini",
+          summary == "Codex CLI / gpt-5.5",
           repr(summary))
 
 
@@ -237,7 +237,7 @@ def test_A1c_ai_model_summary_light_mode_collapses_to_sonnet():
     ]
     summary = D._format_ai_model_summary({"cli_backend": "codex"}, phases, "light")
     check("A1c AI model summary light mode uses only Codex sonnet tier",
-          summary == "Codex CLI / gpt-5.4",
+          summary == "Codex CLI / gpt-5.5",
           repr(summary))
 
 
@@ -1493,19 +1493,19 @@ def test_G10_codex_model_unavailable_downgrade():
                   base_timeout_s=3600, model="opus")
     breadth = Phase("breadth", ["Breadth"], ["analysis_*.md"],
                     base_timeout_s=3600, model="sonnet")
-    # Without unavailable: opus → gpt-5.5, sonnet → gpt-5.4
+    # Without unavailable: all Codex tiers map to gpt-5.5
     cfg = {"cli_backend": "codex", "mode": "core"}
     check("G10a opus maps to gpt-5.5",
           phase_model(depth, "core", cfg) == "gpt-5.5", "")
-    check("G10b sonnet maps to gpt-5.4",
-          phase_model(breadth, "core", cfg) == "gpt-5.4", "")
-    # Mark gpt-5.5 unavailable: opus phases downgrade, sonnet stays
+    check("G10b sonnet maps to gpt-5.5",
+          phase_model(breadth, "core", cfg) == "gpt-5.5", "")
+    # Mark gpt-5.5 unavailable: every matching tier downgrades to the fallback.
     cfg["_codex_model_unavailable"] = "gpt-5.5"
-    cfg["_codex_model_fallback"] = "gpt-5.4"
-    check("G10c opus downgraded to gpt-5.4",
-          phase_model(depth, "core", cfg) == "gpt-5.4", "")
-    check("G10d sonnet unaffected (still gpt-5.4)",
-          phase_model(breadth, "core", cfg) == "gpt-5.4", "")
+    cfg["_codex_model_fallback"] = "gpt-5.4-mini"
+    check("G10c opus downgraded to gpt-5.4-mini",
+          phase_model(depth, "core", cfg) == "gpt-5.4-mini", "")
+    check("G10d sonnet downgraded to gpt-5.4-mini",
+          phase_model(breadth, "core", cfg) == "gpt-5.4-mini", "")
 
 
 def test_Q1_no_sleep_override_clears_hibernation_marker():
@@ -1904,7 +1904,7 @@ def test_M1_opus_alias_resolves_to_codex_opus_tier():
 def test_M2_light_mode_still_forces_sonnet():
     phase = D.Phase("depth", [], [], base_timeout_s=1, model="opus")
     check("M2 light mode forces sonnet despite opus phase",
-          D.phase_model(phase, "light") == "gpt-5.4",
+          D.phase_model(phase, "light") == "gpt-5.5",
           D.phase_model(phase, "light"))
 
 
@@ -1912,13 +1912,13 @@ def test_M3_l1_verify_shards_are_cost_capped():
     phases = {p.name: p for p in D.L1_PHASES}
     for name in D.L1_VERIFY_PHASE_NAMES:
         check(f"M3 L1 {name} uses Codex sonnet tier",
-              D.phase_model(phases[name], "thorough") == "gpt-5.4",
+              D.phase_model(phases[name], "thorough") == "gpt-5.5",
               D.phase_model(phases[name], "thorough"))
     check("M3 L1 verify_queue stays Codex haiku tier",
-          D.phase_model(phases["verify_queue"], "thorough") == "gpt-5.4-mini",
+          D.phase_model(phases["verify_queue"], "thorough") == "gpt-5.5",
           D.phase_model(phases["verify_queue"], "thorough"))
     check("M3 L1 verify_aggregate stays Codex haiku tier",
-          D.phase_model(phases["verify_aggregate"], "thorough") == "gpt-5.4-mini",
+          D.phase_model(phases["verify_aggregate"], "thorough") == "gpt-5.5",
           D.phase_model(phases["verify_aggregate"], "thorough"))
 
 

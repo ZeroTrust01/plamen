@@ -1168,7 +1168,7 @@ def test_scenario_j_breadth_model_override() -> None:
     light_model = _pd.phase_model(
         phase, "light", {"breadth_model_override": "gpt-5.5"}
     )
-    _assert(light_model == "gpt-5.4",
+    _assert(light_model == "gpt-5.5",
             f"J: light mode must still force sonnet; got {light_model}")
     print("[scenario J] PASS")
 

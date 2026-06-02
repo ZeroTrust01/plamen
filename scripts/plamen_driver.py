@@ -118,8 +118,8 @@ Execute the analysis described in the prompt text directly.
 ## Model Tier Mapping
 
 - `model="opus"` → `gpt-5.5`
-- `model="sonnet"` → `gpt-5.4`
-- `model="haiku"` → `gpt-5.4-mini`
+- `model="sonnet"` → `gpt-5.5`
+- `model="haiku"` → `gpt-5.5`
 - `subagent_type="general-purpose"` → you (single agent, perform the work)
 - `subagent_type="security-analyzer"` → you (single agent, perform the work)
 
@@ -180,8 +180,8 @@ instructs you to "spawn agents" or "use the Task tool":
 ## Model Tier Mapping
 
 - `model="opus"` → `gpt-5.5` (parent model — children inherit this)
-- `model="sonnet"` → `gpt-5.4`
-- `model="haiku"` → `gpt-5.4-mini`
+- `model="sonnet"` → `gpt-5.5`
+- `model="haiku"` → `gpt-5.5`
 - NOTE: All sub-agents run YOUR model. Model specifications in Task
   blocks (e.g., `model="sonnet"`) are informational only — they cannot
   be overridden per sub-agent in Codex.
@@ -4996,12 +4996,12 @@ def main():
                 sys.exit(EXIT_ERROR)
             if _detect_codex_model_not_available(_stdio_crash_log):
                 requested = phase_model(phase, config["mode"], config)
-                fallback = _CODEX_MODEL_MAP.get("sonnet", "gpt-5.4")
-                if requested != fallback:
+                fallback = _codex_next_fallback_model(requested)
+                if fallback:
                     log.warning(
                         f"[{phase.name}] Model {requested} not available on "
-                        f"your Codex/OpenAI plan. Downgrading opus-tier "
-                        f"phases to {fallback} for the rest of this run."
+                        f"your Codex/OpenAI plan. Falling back to {fallback} "
+                        f"for matching phases for the rest of this run."
                     )
                     config["_codex_model_unavailable"] = requested
                     config["_codex_model_fallback"] = fallback

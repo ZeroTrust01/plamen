@@ -1,6 +1,6 @@
 name = "scoring"
 description = "Confidence scoring: mechanical 4-axis formula application per finding"
-model = "gpt-5.4-mini"
+model = "gpt-5.5"
 
 developer_instructions = """
             You are the Confidence Scoring Agent. Read your full methodology from:

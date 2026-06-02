@@ -780,7 +780,7 @@ def test_display_plain_output_for_captured_shell():
     code = (
         "import plamen_display as d; "
         "d.print_banner('sc', 'core', 'C:/repo', 3, 0, 'C:/repo/.scratchpad', "
-        "'Codex CLI / gpt-5.4'); "
+        "'Codex CLI / gpt-5.5'); "
         "d.spin(0)"
     )
     r = subprocess.run(
@@ -795,7 +795,7 @@ def test_display_plain_output_for_captured_shell():
     )
     assert r.returncode == 0, r.stderr
     assert "PLAMEN V2 DRIVER -- SC / CORE" in r.stderr
-    assert "AI Model: Codex CLI / gpt-5.4" in r.stderr
+    assert "AI Model: Codex CLI / gpt-5.5" in r.stderr
     assert "\r" not in r.stderr
     assert "╭" not in r.stderr
 
