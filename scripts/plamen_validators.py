@@ -5564,7 +5564,8 @@ def _validate_tier_body_against_manifest(
 
     Returns issue strings if the body file fails coverage / no-extras /
     location-integrity / report-blocked-tag checks. Fails closed for V2
-    report phases when the manifest is absent but a tier body exists.
+    report phases when the manifest is absent but a tier body exists, except
+    for authenticated or mechanically provable empty tiers.
     """
     _tier_m = re.match(
         r"^report_(critical_high|medium|low_info)(?:_[a-z])?$", phase_name
@@ -5573,6 +5574,10 @@ def _validate_tier_body_against_manifest(
         return []
     body_files = [f"{phase_name}.md"]
     manifest_keys = [phase_name]
+
+    def _empty_tier_body_without_report_ids(body: str, shard_key: str) -> bool:
+        expected = _expected_tier_assignment_count(scratchpad, shard_key)
+        return expected == 0 and not _extract_report_ids_from_body(body)
 
     manifests_dir = scratchpad / "body_manifests"
     if not manifests_dir.exists():
@@ -5583,8 +5588,11 @@ def _validate_tier_body_against_manifest(
             except Exception:
                 existing_body = ""
             if (
-                not _extract_report_ids_from_body(existing_body)
-                and _empty_tier_sidecar_valid(scratchpad, phase_name, f"{phase_name}.md")
+                _empty_tier_body_without_report_ids(existing_body, phase_name)
+                or (
+                    not _extract_report_ids_from_body(existing_body)
+                    and _empty_tier_sidecar_valid(scratchpad, phase_name, f"{phase_name}.md")
+                )
             ):
                 return []
             return [f"body validator: body_manifests missing for {phase_name}"]
@@ -5609,8 +5617,11 @@ def _validate_tier_body_against_manifest(
                 except Exception:
                     existing_body = ""
                 if (
-                    not _extract_report_ids_from_body(existing_body)
-                    and _empty_tier_sidecar_valid(scratchpad, mkey, body_name)
+                    _empty_tier_body_without_report_ids(existing_body, mkey)
+                    or (
+                        not _extract_report_ids_from_body(existing_body)
+                        and _empty_tier_sidecar_valid(scratchpad, mkey, body_name)
+                    )
                 ):
                     continue
                 issues.append(f"body validator: manifest {mkey}.json missing for {body_name}")

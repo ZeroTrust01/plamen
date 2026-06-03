@@ -117,7 +117,14 @@ def test_assembled_appendix_uses_traceability_records_not_master_index_paste(tmp
     assert "## Master Finding Index" not in report
 
 
-def test_empty_tier_auth_token_without_sidecar_fails(tmp_path: Path):
+def test_empty_tier_no_ids_without_sidecar_passes_when_zero_expected(tmp_path: Path):
+    (tmp_path / "report_index.md").write_text(
+        "## Master Finding Index\n\n"
+        "| Report ID | Title | Severity | Internal Hypothesis |\n"
+        "|-----------|-------|----------|---------------------|\n"
+        "| M-01 | Bug | Medium | H-1 |\n",
+        encoding="utf-8",
+    )
     (tmp_path / "report_critical_high.md").write_text(
         "# Critical and High Findings\n\n"
         "_No findings of this severity tier._\n\n"
@@ -127,8 +134,7 @@ def test_empty_tier_auth_token_without_sidecar_fails(tmp_path: Path):
 
     issues = D._validate_tier_body_against_manifest(tmp_path, "report_critical_high")
 
-    assert issues
-    assert "body_manifests missing" in issues[0]
+    assert issues == []
 
 
 def test_stale_verify_none_does_not_mask_malformed_nonempty_queue(tmp_path: Path):

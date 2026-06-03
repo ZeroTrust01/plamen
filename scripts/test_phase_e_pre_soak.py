@@ -88,8 +88,15 @@ def test_EMPTY_skip_writes_empty_tier_note(tmp_path: Path):
     check("EMPTY.authenticated_empty_tier_passes_validator", issues == [], repr(issues))
 
 
-def test_EMPTY_missing_manifest_with_no_auth_fails(tmp_path: Path):
+def test_EMPTY_missing_manifest_with_expected_finding_fails(tmp_path: Path):
     sp = tmp_path
+    (sp / "report_index.md").write_text(
+        "## Master Finding Index\n\n"
+        "| Report ID | Title | Severity | Internal Hypothesis |\n"
+        "|-----------|-------|----------|---------------------|\n"
+        "| C-01 | bug | Critical | H-1 |\n",
+        encoding="utf-8",
+    )
     (sp / "report_critical_high.md").write_text(
         "# Critical and High Findings\n\n_No findings here._\n",
         encoding="utf-8",
@@ -100,6 +107,29 @@ def test_EMPTY_missing_manifest_with_no_auth_fails(tmp_path: Path):
         bool(issues) and "body_manifests missing" in issues[0],
         repr(issues),
     )
+
+
+def test_EMPTY_missing_manifest_zero_expected_no_ids_passes(tmp_path: Path):
+    sp = tmp_path
+    (sp / "report_index.md").write_text(
+        "## Master Finding Index\n\n"
+        "| Report ID | Title | Severity | Internal Hypothesis |\n"
+        "|-----------|-------|----------|---------------------|\n"
+        "| M-01 | bug | Medium | H-1 |\n",
+        encoding="utf-8",
+    )
+    manifests = sp / "body_manifests"
+    manifests.mkdir()
+    (manifests / "report_medium.json").write_text(
+        json.dumps({"shard": "report_medium", "findings": []}),
+        encoding="utf-8",
+    )
+    (sp / "report_critical_high.md").write_text(
+        "# Critical and High Findings\n\n_No findings here._\n",
+        encoding="utf-8",
+    )
+    issues = D._validate_tier_body_against_manifest(sp, "report_critical_high")
+    check("EMPTY.zero_expected_missing_manifest_no_ids_passes", issues == [], repr(issues))
 
 
 def test_EMPTY_skip_returns_false_when_manifest_exists(tmp_path: Path):
@@ -448,6 +478,8 @@ TESTS_BASIC = [
 
 TESTS_INTEG = [
     test_EMPTY_skip_writes_empty_tier_note,
+    test_EMPTY_missing_manifest_with_expected_finding_fails,
+    test_EMPTY_missing_manifest_zero_expected_no_ids_passes,
     test_EMPTY_skip_returns_false_when_manifest_exists,
     test_IDPARSE_crossbatch_validator_uses_robust_parsing,
     test_IDPARSE_skeptic_validator_uses_robust_parsing,
