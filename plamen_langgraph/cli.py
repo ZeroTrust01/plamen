@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import warnings
 from pathlib import Path
 
 if __package__ in (None, ""):
@@ -34,7 +35,16 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _suppress_known_dependency_warnings() -> None:
+    warnings.filterwarnings(
+        "ignore",
+        message=r"The default value of `allowed_objects` will change.*",
+        category=Warning,
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
+    _suppress_known_dependency_warnings()
     args = _build_parser().parse_args(argv)
     if args.command != "recon":
         raise SystemExit(f"unsupported command: {args.command}")

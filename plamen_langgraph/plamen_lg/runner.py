@@ -45,6 +45,8 @@ class CodexRunner:
             "exec",
             "-C",
             str(project_root),
+            "--sandbox",
+            "workspace-write",
             "--json",
             "--output-last-message",
             str(last_message_path),
@@ -119,4 +121,3 @@ class CodexRunner:
                 timed_out=True,
                 error=f"codex exec timed out after {timeout_s}s",
             )
-
