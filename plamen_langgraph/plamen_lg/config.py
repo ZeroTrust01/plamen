@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 VALID_LANGUAGES = {"auto", "evm", "solana", "aptos", "sui", "soroban"}
+DEFAULT_SCRATCHPAD_DIR = ".lg_scratchpad"
 
 
 @dataclass(frozen=True)
@@ -75,7 +76,11 @@ def build_config(
     if language not in VALID_LANGUAGES:
         raise ValueError(f"invalid language: {language}")
 
-    sp = Path(scratchpad).expanduser().resolve() if scratchpad else root / ".scratchpad"
+    sp = (
+        Path(scratchpad).expanduser().resolve()
+        if scratchpad
+        else root / DEFAULT_SCRATCHPAD_DIR
+    )
     db = Path(db_path).expanduser().resolve() if db_path else sp / "plamen_lg.sqlite"
     resolved_language = detect_language(root) if language == "auto" else language
 

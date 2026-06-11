@@ -171,9 +171,9 @@ future phases.
    create normal cache/output directories, but do not apply fixes or install
    dependencies during recon.
 5. Prefer bounded local inspection with `rg`, `find`, `ls`, and line-bounded
-   file reads. Exclude `.git`, `.scratchpad`, `out`, `cache`, `node_modules`,
-   and vendored dependency directories from broad source surveys unless needed
-   to identify imports.
+   file reads. Exclude `.git`, `.lg_scratchpad`, `.scratchpad`, `out`,
+   `cache`, `node_modules`, and vendored dependency directories from broad
+   source surveys unless needed to identify imports.
 6. If a tool, dependency, build, MCP server, network lookup, or external
    service is unavailable, record `UNAVAILABLE` with the exact reason and
    continue. Do not retry unavailable tools more than once.

@@ -24,7 +24,7 @@ def test_sqlite_schema_initializes(tmp_path):
 def test_run_and_phase_rows_can_be_created_and_updated(tmp_path):
     store = StateStore(tmp_path / "plamen_lg.sqlite")
     store.init_db()
-    store.create_run("run-1", "/repo", "/repo/.scratchpad", "recon")
+    store.create_run("run-1", "/repo", "/repo/.lg_scratchpad", "recon")
     store.update_run_status("run-1", "running")
     store.create_phase_run("phase-1", "run-1", "recon")
     store.update_phase_run(
@@ -45,4 +45,3 @@ def test_run_and_phase_rows_can_be_created_and_updated(tmp_path):
 
     assert run == {"status": "running"}
     assert phase == {"status": "succeeded", "returncode": 0, "stdout_path": "stdout.log"}
-

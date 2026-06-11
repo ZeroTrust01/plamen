@@ -7,9 +7,9 @@ from pathlib import Path
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from plamen_langgraph.plamen_lg.config import build_config
+    from plamen_langgraph.plamen_lg.config import DEFAULT_SCRATCHPAD_DIR, build_config
 else:
-    from .plamen_lg.config import build_config
+    from .plamen_lg.config import DEFAULT_SCRATCHPAD_DIR, build_config
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -28,8 +28,20 @@ def _build_parser() -> argparse.ArgumentParser:
         default="auto",
         choices=("auto", "evm", "solana", "aptos", "sui", "soroban"),
     )
-    recon.add_argument("--scratchpad", default=None)
-    recon.add_argument("--db", dest="db_path", default=None)
+    recon.add_argument(
+        "--scratchpad",
+        default=None,
+        help=(
+            "Scratchpad directory. Defaults to "
+            f"<project_root>/{DEFAULT_SCRATCHPAD_DIR}."
+        ),
+    )
+    recon.add_argument(
+        "--db",
+        dest="db_path",
+        default=None,
+        help="SQLite state DB path. Defaults to <scratchpad>/plamen_lg.sqlite.",
+    )
     recon.add_argument("--codex-bin", default="codex")
     recon.add_argument("--timeout-s", type=int, default=3000)
     return parser

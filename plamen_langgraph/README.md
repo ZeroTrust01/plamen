@@ -17,11 +17,11 @@ python -m plamen_langgraph.cli recon /path/to/project \
   --mode core \
   --pipeline sc \
   --language auto \
-  --db /path/to/project/.scratchpad/plamen_lg.sqlite
+  --db /path/to/project/.lg_scratchpad/plamen_lg.sqlite
 ```
 
 The new path writes only LangGraph debug/state files under the target
-project's `.scratchpad`:
+project's `.lg_scratchpad`:
 
 - `plamen_lg.sqlite`
 - `_lg_recon_prompt.md`
@@ -30,5 +30,6 @@ project's `.scratchpad`:
 - `_lg_recon_events.jsonl`
 - `_lg_recon_last_message.md`
 
-It does not update legacy checkpoints such as `_v2_checkpoint.json`.
-
+It does not update legacy checkpoints such as `_v2_checkpoint.json` or write
+to the legacy `.scratchpad` directory unless `--scratchpad` explicitly points
+there.

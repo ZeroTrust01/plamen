@@ -70,13 +70,14 @@ def test_mocked_successful_recon_marks_run_succeeded(tmp_path):
 
     assert state["status"] == "succeeded"
     assert len(runner.calls) == 1
-    scratch = project / ".scratchpad"
+    scratch = project / ".lg_scratchpad"
     assert (scratch / "_lg_recon_prompt.md").exists()
     assert (scratch / "_lg_recon_stdout.log").exists()
     assert (scratch / "_lg_recon_stderr.log").exists()
     assert (scratch / "_lg_recon_events.jsonl").exists()
     assert (scratch / "_lg_recon_last_message.md").exists()
     assert not (scratch / "_v2_checkpoint.json").exists()
+    assert not (project / ".scratchpad").exists()
 
     store = StateStore(config.db_path)
     run = store.fetch_one("select phase, status from runs where id = ?", (state["run_id"],))
