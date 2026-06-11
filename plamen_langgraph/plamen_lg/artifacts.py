@@ -7,6 +7,7 @@ from typing import Any
 
 
 BREADTH_MIN_BYTES = 200
+RESCAN_MIN_BYTES = 200
 
 
 def sha256_file(path: Path) -> str:
@@ -124,6 +125,22 @@ def _is_forbidden_breadth_output(filename: str) -> bool:
     return name == "AUDIT_REPORT.md" or any(
         name.startswith(prefix) for prefix in forbidden_prefixes
     )
+
+
+def _is_rescan_output(filename: str) -> bool:
+    name = Path(_strip_markdown(filename)).name
+    return bool(re.fullmatch(r"analysis_rescan_[A-Za-z0-9][A-Za-z0-9_.-]*\.md", name))
+
+
+def _is_percontract_output(filename: str) -> bool:
+    name = Path(_strip_markdown(filename)).name
+    return bool(
+        re.fullmatch(r"analysis_percontract_[A-Za-z0-9][A-Za-z0-9_.-]*\.md", name)
+    )
+
+
+def _is_rescan_owned_output(filename: str) -> bool:
+    return _is_rescan_output(filename) or _is_percontract_output(filename)
 
 
 def _slug_to_analysis_filename(value: str) -> str | None:
@@ -330,6 +347,33 @@ def breadth_open_outputs(scratchpad: str | Path) -> list[str]:
     ]
 
 
+def first_pass_breadth_issues(scratchpad: str | Path) -> list[str]:
+    """Validate manifest-derived first-pass breadth outputs for rescan input.
+
+    Unlike the breadth phase's own validator, this check intentionally does
+    not reject existing rescan/per-contract files. That lets a failed rescan
+    retry validate the first-pass prerequisite without treating its own prior
+    partial outputs as breadth contamination.
+    """
+    root = Path(scratchpad)
+    issues = validate_spawn_manifest_schema(root)
+    expected = expected_breadth_artifacts(root)
+    if not expected:
+        issues.append(
+            "spawn_manifest.md schema invalid: zero manifest-derived breadth outputs"
+        )
+    for name in expected:
+        path = root / name
+        if not path.exists():
+            issues.append(f"missing first-pass breadth artifact: {name}")
+        elif path.stat().st_size < BREADTH_MIN_BYTES:
+            issues.append(
+                f"stub first-pass breadth artifact: {name} "
+                f"(<{BREADTH_MIN_BYTES} bytes)"
+            )
+    return issues
+
+
 def forbidden_breadth_artifacts(scratchpad: str | Path) -> list[str]:
     root = Path(scratchpad)
     if not root.exists():
@@ -339,6 +383,76 @@ def forbidden_breadth_artifacts(scratchpad: str | Path) -> list[str]:
         for path in root.glob("*.md")
         if path.is_file() and _is_forbidden_breadth_output(path.name)
     )
+
+
+def rescan_outputs(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    if not root.exists():
+        return []
+    return sorted(
+        path.name
+        for path in root.glob("*.md")
+        if path.is_file() and _is_rescan_owned_output(path.name)
+    )
+
+
+def forbidden_rescan_artifacts(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    if not root.exists():
+        return []
+    first_pass = set(expected_breadth_artifacts(root))
+    forbidden: list[str] = []
+    downstream_prefixes = (
+        "findings_inventory",
+        "inventory",
+        "depth_",
+        "chain_",
+        "verify_",
+        "verification_",
+        "score",
+        "report_",
+    )
+    for path in root.glob("*.md"):
+        if not path.is_file():
+            continue
+        name = path.name
+        if _is_rescan_owned_output(name):
+            continue
+        if _is_breadth_output(name) and name not in first_pass:
+            forbidden.append(name)
+            continue
+        if name.startswith("analysis_") and name not in first_pass:
+            forbidden.append(name)
+            continue
+        if name == "AUDIT_REPORT.md" or any(name.startswith(prefix) for prefix in downstream_prefixes):
+            forbidden.append(name)
+    return sorted(set(forbidden))
+
+
+def _normalized_file_text(path: Path) -> str:
+    try:
+        return re.sub(r"\s+", " ", path.read_text(encoding="utf-8", errors="replace")).strip()
+    except OSError:
+        return ""
+
+
+def duplicate_rescan_outputs_from_first_pass(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    first_pass_texts = {
+        name: _normalized_file_text(root / name)
+        for name in expected_breadth_artifacts(root)
+        if (root / name).is_file()
+    }
+    duplicates: list[str] = []
+    for name in rescan_outputs(root):
+        text = _normalized_file_text(root / name)
+        if not text:
+            continue
+        for first_name, first_text in first_pass_texts.items():
+            if text == first_text:
+                duplicates.append(f"{name} duplicates first-pass breadth output {first_name}")
+                break
+    return duplicates
 
 
 def validate_phase_artifacts(
@@ -375,6 +489,38 @@ def validate_phase_artifacts(
         if forbidden:
             issues.append(
                 "breadth phase wrote forbidden later-phase artifact(s): "
+                + ", ".join(forbidden[:12])
+            )
+        return issues
+    if phase_name == "rescan":
+        root = Path(scratchpad)
+        issues = first_pass_breadth_issues(root)
+
+        owned = rescan_outputs(root)
+        rescan_family = [name for name in owned if _is_rescan_output(name)]
+        percontract_family = [name for name in owned if _is_percontract_output(name)]
+        if not rescan_family:
+            issues.append("missing rescan artifact family: analysis_rescan_*.md")
+        if not percontract_family:
+            issues.append(
+                "missing per-contract artifact family: analysis_percontract_*.md"
+            )
+
+        for name in owned:
+            path = root / name
+            if path.stat().st_size < RESCAN_MIN_BYTES:
+                issues.append(
+                    f"stub rescan artifact: {name} (<{RESCAN_MIN_BYTES} bytes)"
+                )
+
+        duplicates = duplicate_rescan_outputs_from_first_pass(root)
+        if duplicates:
+            issues.extend(duplicates)
+
+        forbidden = forbidden_rescan_artifacts(root)
+        if forbidden:
+            issues.append(
+                "rescan phase wrote artifact(s) outside rescan-owned families: "
                 + ", ".join(forbidden[:12])
             )
         return issues

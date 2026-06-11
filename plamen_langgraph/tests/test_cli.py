@@ -79,6 +79,44 @@ def test_breadth_cli_parses_same_options_as_recon(tmp_path):
     assert args.timeout_s == 456
 
 
+def test_rescan_cli_parses_same_options_as_breadth(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    scratch = tmp_path / "scratch"
+    db = tmp_path / "state.sqlite"
+
+    args = _build_parser().parse_args(
+        [
+            "rescan",
+            str(project),
+            "--mode",
+            "thorough",
+            "--pipeline",
+            "sc",
+            "--language",
+            "evm",
+            "--scratchpad",
+            str(scratch),
+            "--db",
+            str(db),
+            "--codex-bin",
+            "codex-test",
+            "--timeout-s",
+            "789",
+        ]
+    )
+
+    assert args.command == "rescan"
+    assert args.project_root == str(project)
+    assert args.mode == "thorough"
+    assert args.pipeline == "sc"
+    assert args.language == "evm"
+    assert args.scratchpad == str(scratch)
+    assert args.db_path == str(db)
+    assert args.codex_bin == "codex-test"
+    assert args.timeout_s == 789
+
+
 def test_single_node_cli_options_preserve_target_phase(tmp_path):
     project = tmp_path / "project"
     project.mkdir()

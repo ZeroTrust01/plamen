@@ -5,6 +5,7 @@ from plamen_langgraph.plamen_lg.phases import (
     build_breadth_prompt,
     build_instantiate_prompt,
     build_recon_prompt,
+    build_rescan_prompt,
     expected_phase_artifacts,
     expected_recon_artifacts,
     get_phase,
@@ -125,4 +126,47 @@ def test_langgraph_breadth_prompt_uses_direct_manifest_methodology(tmp_path):
     assert "sonnet" not in prompt
     assert "haiku" not in prompt
     assert "Claude" not in prompt
+    assert "_v2_checkpoint.json" in prompt
+
+
+def test_rescan_phase_metadata_uses_canonical_sc_phase():
+    phase = get_phase("rescan", "sc")
+
+    assert phase.name == "rescan"
+    assert phase.section_markers == [
+        "Phase 3b: Breadth Re-Scan (+ Phase 3c per-contract sub-step)"
+    ]
+    assert expected_phase_artifacts("rescan") == [
+        "analysis_rescan_*.md",
+        "analysis_percontract_*.md",
+    ]
+
+
+def test_langgraph_rescan_prompt_uses_direct_thorough_methodology(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    scratch = project / ".lg_scratchpad"
+    scratch.mkdir()
+    (scratch / "spawn_manifest.md").write_text(
+        """# Spawn Manifest
+
+| Row Type | Template | Required? | Agent ID | Focus Area | Expected Output | Status |
+|----------|----------|-----------|----------|------------|-----------------|--------|
+| AGENT | CORE_STATE | YES | B1 | core_state | analysis_core_state.md | QUEUED |
+""",
+        encoding="utf-8",
+    )
+    config = build_config(project, language="evm", mode="thorough").to_dict()
+
+    prompt = build_rescan_prompt(config)
+
+    assert prompt.startswith("# Plamen LangGraph Rescan Direct-Execution Prompt")
+    assert "Phase 4: Additional Breadth Re-Scan" in prompt
+    assert "`analysis_core_state.md`" in prompt
+    assert "This phase is Thorough-only" in prompt
+    assert "Write only `analysis_rescan_*.md`, `analysis_percontract_*.md`" in prompt
+    assert "Do not write new first-pass `analysis_*.md` files" in prompt
+    assert "Do not create any artifact outside this output contract" in prompt
+    assert "V2 driver's `rescan` subprocess" not in prompt
+    assert "Task(" not in prompt
     assert "_v2_checkpoint.json" in prompt

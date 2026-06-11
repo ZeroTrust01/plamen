@@ -10,6 +10,7 @@ from .artifacts import (
     breadth_open_outputs,
     check_artifacts,
     expected_breadth_artifacts,
+    first_pass_breadth_issues,
     validate_phase_artifacts,
     validate_spawn_manifest_schema,
 )
@@ -27,7 +28,7 @@ except ImportError:  # pragma: no cover - exercised only when dependency is abse
     StateGraph = None
 
 
-SUPPORTED_TARGET_PHASES = {"recon", "instantiate", "breadth"}
+SUPPORTED_TARGET_PHASES = {"recon", "instantiate", "breadth", "rescan"}
 
 
 def _output_paths(scratchpad: str | Path, phase_name: str) -> dict[str, Path]:
@@ -70,7 +71,15 @@ def _predecessors_for(phase_name: str) -> list[str]:
         return ["recon"]
     if phase_name == "breadth":
         return ["recon", "instantiate"]
+    if phase_name == "rescan":
+        return ["recon", "instantiate", "breadth"]
     raise ValueError(f"unsupported target phase: {phase_name}")
+
+
+def _mode_gate_error(phase_name: str, mode: str) -> str | None:
+    if phase_name == "rescan" and mode != "thorough":
+        return "rescan requires --mode thorough"
+    return None
 
 
 def _phase_preconditions_met(phase_name: str, state: AuditState) -> bool:
@@ -208,6 +217,30 @@ def _make_phase_node(
                         next_state["failed_phase"] = phase_name
                     return next_state  # type: ignore[return-value]
 
+            if phase_name == "rescan":
+                preflight_issues = first_pass_breadth_issues(scratchpad)
+                if preflight_issues:
+                    artifacts = check_artifacts(scratchpad, expected_artifacts)
+                    store.record_artifacts(
+                        state["run_id"],
+                        phase_name,
+                        artifacts["records"],
+                    )
+                    error = "; ".join(_dedupe_issues(preflight_issues))
+                    store.update_phase_run(
+                        phase_run_id,
+                        "failed",
+                        finished_at=utc_now(),
+                        error=error,
+                    )
+                    store.update_run_status(state["run_id"], "failed")
+                    next_state = dict(state)
+                    next_state["current_phase"] = phase_name
+                    next_state["status"] = "failed"
+                    next_state["error"] = error
+                    next_state["failed_phase"] = phase_name
+                    return next_state  # type: ignore[return-value]
+
             prompt = build_phase_prompt(
                 phase_name,
                 dict(state),
@@ -312,10 +345,12 @@ def build_graph(
         raise ValueError(f"unsupported target phase: {target_phase}")
     recon_node = _make_phase_node("recon", runner, timeout_s)
     nodes = [("recon", recon_node)]
-    if target_phase in {"instantiate", "breadth"}:
+    if target_phase in {"instantiate", "breadth", "rescan"}:
         nodes.append(("instantiate", _make_phase_node("instantiate", runner, timeout_s)))
-    if target_phase == "breadth":
+    if target_phase in {"breadth", "rescan"}:
         nodes.append(("breadth", _make_phase_node("breadth", runner, timeout_s)))
+    if target_phase == "rescan":
+        nodes.append(("rescan", _make_phase_node("rescan", runner, timeout_s)))
     if StateGraph is None:
         return _SequentialGraph([node for _name, node in nodes])
 
@@ -323,7 +358,12 @@ def build_graph(
     for name, node in nodes:
         graph.add_node(name, node)
     graph.add_edge(START, "recon")
-    if target_phase == "breadth":
+    if target_phase == "rescan":
+        graph.add_edge("recon", "instantiate")
+        graph.add_edge("instantiate", "breadth")
+        graph.add_edge("breadth", "rescan")
+        graph.add_edge("rescan", END)
+    elif target_phase == "breadth":
         graph.add_edge("recon", "instantiate")
         graph.add_edge("instantiate", "breadth")
         graph.add_edge("breadth", END)
@@ -369,6 +409,13 @@ def run_graph(
 ) -> AuditState:
     if target_phase not in SUPPORTED_TARGET_PHASES:
         raise ValueError(f"unsupported target phase: {target_phase}")
+    mode_error = _mode_gate_error(target_phase, config.mode)
+    if mode_error:
+        state = initial_state(config, target_phase=target_phase)
+        state["status"] = "failed"
+        state["failed_phase"] = target_phase
+        state["error"] = mode_error
+        return state
     scratchpad = Path(config.scratchpad)
     scratchpad.mkdir(parents=True, exist_ok=True)
     with _run_lock(scratchpad):
@@ -402,6 +449,10 @@ def run_instantiate_graph(config: AuditConfig, runner: Any | None = None) -> Aud
 
 def run_breadth_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
     return run_graph(config, target_phase="breadth", runner=runner)
+
+
+def run_rescan_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
+    return run_graph(config, target_phase="rescan", runner=runner)
 
 
 def _same_resolved_path(left: str, right: str) -> bool:
@@ -487,7 +538,10 @@ def _validate_single_node_prerequisites(
             issues.append(f"base run lacks successful {predecessor} phase")
 
     for predecessor in predecessors:
-        issues.extend(_validate_predecessor_artifacts(predecessor, config.scratchpad))
+        if phase_name == "rescan" and predecessor == "breadth":
+            issues.extend(first_pass_breadth_issues(config.scratchpad))
+        else:
+            issues.extend(_validate_predecessor_artifacts(predecessor, config.scratchpad))
 
     return predecessors, _dedupe_issues(issues)
 
@@ -500,6 +554,9 @@ def run_phase_node(
 ) -> AuditState:
     if phase_name not in SUPPORTED_TARGET_PHASES:
         raise ValueError(f"unsupported target phase: {phase_name}")
+    mode_error = _mode_gate_error(phase_name, config.mode)
+    if mode_error:
+        return _failed_single_node_state(config, phase_name, base_run_id, mode_error)
 
     scratchpad = Path(config.scratchpad)
     scratchpad.mkdir(parents=True, exist_ok=True)

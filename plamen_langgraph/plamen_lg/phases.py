@@ -5,7 +5,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .artifacts import BREADTH_MIN_BYTES, expected_breadth_artifacts
+from .artifacts import (
+    BREADTH_MIN_BYTES,
+    RESCAN_MIN_BYTES,
+    expected_breadth_artifacts,
+    rescan_outputs,
+)
 
 
 RECON_ARTIFACTS = [
@@ -154,6 +159,16 @@ def get_phase(name: str, pipeline: str = "sc") -> Any:
             base_timeout_s=10800,
             critical=True,
         )
+    if name == "rescan":
+        return SimplePhase(
+            name="rescan",
+            section_markers=[
+                "Phase 3b: Breadth Re-Scan (+ Phase 3c per-contract sub-step)"
+            ],
+            expected_artifacts=["analysis_rescan_*.md", "analysis_percontract_*.md"],
+            base_timeout_s=4800,
+            critical=True,
+        )
     raise ValueError(f"unsupported LangGraph phase: {name}")
 
 
@@ -168,6 +183,11 @@ def _read_phase2_methodology() -> str:
 
 def _read_phase3_methodology() -> str:
     path = _repo_root() / "prompts" / "shared" / "v2" / "phase3-breadth.md"
+    return path.read_text(encoding="utf-8")
+
+
+def _read_phase4_methodology() -> str:
+    path = _repo_root() / "prompts" / "shared" / "v2" / "phase4-rescan.md"
     return path.read_text(encoding="utf-8")
 
 
@@ -481,6 +501,91 @@ After every manifest-derived output exists and is at least
 """
 
 
+def build_rescan_prompt(config: dict[str, Any]) -> str:
+    """Build a direct-execution prompt for Thorough-only rescan work."""
+    methodology = _read_phase4_methodology().strip()
+    project_root = _none_if_blank(config.get("project_root"))
+    scratchpad = _none_if_blank(config.get("scratchpad"))
+    db_path = _none_if_blank(config.get("db_path"))
+    language = _none_if_blank(config.get("language", "evm"))
+    mode = _none_if_blank(config.get("mode", "core"))
+    pipeline = _none_if_blank(config.get("pipeline", "sc"))
+    first_pass_outputs = expected_breadth_artifacts(scratchpad)
+    first_pass_list = (
+        "\n".join(f"- `{name}`" for name in first_pass_outputs)
+        if first_pass_outputs
+        else "- `(none parsed; fail before running if this remains true)`"
+    )
+    existing_owned = rescan_outputs(scratchpad)
+    existing_owned_list = (
+        "\n".join(f"- `{name}`" for name in existing_owned)
+        if existing_owned
+        else "- `(none)`"
+    )
+
+    return f"""# Plamen LangGraph Rescan Direct-Execution Prompt
+
+You are running only the `rescan` phase of Plamen's smart-contract audit
+pipeline. This prompt is generated directly by `plamen_langgraph`; use the
+rescan procedure below only to produce bounded additional discovery outputs.
+
+## Configuration
+
+- Project root: `{project_root}`
+- Scratchpad: `{scratchpad}`
+- LangGraph database: `{db_path}`
+- Pipeline: `{pipeline}`
+- Mode: `{mode}`
+- Language: `{language}`
+- Required input artifact: `spawn_manifest.md`
+- Rescan minimum output size: `{RESCAN_MIN_BYTES}` bytes
+
+## First-Pass Exclusion Set
+
+Read the first-pass breadth outputs listed below before writing new findings.
+They are the exclusion set for this phase; do not duplicate their root causes,
+locations, or same-location title variants.
+
+{first_pass_list}
+
+## Existing Rescan-Owned Outputs
+
+On retry, existing substantial rescan-owned outputs may be preserved. Refresh
+only when they are incomplete, stub-like, or materially wrong.
+
+{existing_owned_list}
+
+## Hard Scope
+
+1. Execute rescan only. Do not run inventory, semantic invariants, depth, RAG,
+   chain analysis, verification, scoring, report index, report writing, or
+   report assembly.
+2. This phase is Thorough-only. If the mode above is not `thorough`, stop
+   without writing outputs and explain the mode error.
+3. Read `spawn_manifest.md`, first-pass breadth outputs, recon artifacts, and
+   target source files as needed for additional discovery.
+4. Write only `analysis_rescan_*.md`, `analysis_percontract_*.md`,
+   `violations.md`, and optional `_lg_` debug notes under the scratchpad.
+5. Do not write new first-pass `analysis_*.md` files, inventory, depth, chain,
+   verification, scoring, or report artifacts.
+6. Do not edit target source files, dependency manifests, git metadata, legacy
+   `.scratchpad`, or `_v2_checkpoint.json`.
+7. Produce at least one `analysis_rescan_*.md` file and at least one
+   `analysis_percontract_*.md` file. Each output must be substantive and at
+   least `{RESCAN_MIN_BYTES}` bytes.
+
+## Rescan Execution Procedure
+
+{methodology}
+
+## Return
+
+After the additional discovery outputs are written and self-checked, return
+exactly one concise summary:
+`RESCAN COMPLETE: <rescan_count> rescan outputs, <percontract_count> per-contract outputs, limitations: <short list>`.
+"""
+
+
 def build_phase_prompt(
     name: str,
     config: dict[str, Any],
@@ -492,6 +597,8 @@ def build_phase_prompt(
         return build_instantiate_prompt(config)
     if name == "breadth":
         return build_breadth_prompt(config, open_outputs=open_outputs)
+    if name == "rescan":
+        return build_rescan_prompt(config)
     raise ValueError(f"unsupported LangGraph phase: {name}")
 
 

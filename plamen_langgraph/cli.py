@@ -67,6 +67,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run the supported Phase-3 graph prefix: recon -> instantiate -> breadth.",
     )
     add_common_options(breadth)
+    rescan = sub.add_parser(
+        "rescan",
+        help=(
+            "Run the supported Phase-4 Thorough graph prefix: "
+            "recon -> instantiate -> breadth -> rescan."
+        ),
+    )
+    add_common_options(rescan)
     return parser
 
 
@@ -98,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         from .plamen_lg.graph import run_graph, run_phase_node
 
     if args.single_node:
-        if args.command in {"instantiate", "breadth"} and not args.base_run_id:
+        if args.command in {"instantiate", "breadth", "rescan"} and not args.base_run_id:
             print(
                 f"error: {args.command} --single-node requires --base-run-id",
                 file=sys.stderr,
