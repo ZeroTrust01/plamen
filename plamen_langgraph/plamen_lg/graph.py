@@ -77,8 +77,7 @@ def _predecessors_for(phase_name: str) -> list[str]:
 
 
 def _mode_gate_error(phase_name: str, mode: str) -> str | None:
-    if phase_name == "rescan" and mode != "thorough":
-        return "rescan requires --mode thorough"
+    del phase_name, mode
     return None
 
 

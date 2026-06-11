@@ -161,7 +161,7 @@ def test_rescan_phase_metadata_uses_canonical_sc_phase():
     ]
 
 
-def test_langgraph_rescan_prompt_uses_direct_thorough_methodology(tmp_path):
+def test_langgraph_rescan_prompt_uses_direct_mandatory_methodology(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     scratch = project / ".lg_scratchpad"
@@ -175,17 +175,18 @@ def test_langgraph_rescan_prompt_uses_direct_thorough_methodology(tmp_path):
 """,
         encoding="utf-8",
     )
-    config = build_config(project, language="evm", mode="thorough").to_dict()
+    config = build_config(project, language="evm", mode="core").to_dict()
 
     prompt = build_rescan_prompt(config)
 
     assert prompt.startswith("# Plamen LangGraph Rescan Direct-Execution Prompt")
-    assert "Phase 4: Additional Breadth Re-Scan" in prompt
+    assert "Phase 3b/3c: Mandatory Re-Scan And Per-Contract Review" in prompt
     assert "`analysis_core_state.md`" in prompt
-    assert "This phase is Thorough-only" in prompt
+    assert "This phase is mandatory after successful first-pass breadth" in prompt
+    assert "Do not call Task, launch subagents, or delegate work" in prompt
     assert "Write only `analysis_rescan_*.md`, `analysis_percontract_*.md`" in prompt
     assert "Do not write new first-pass `analysis_*.md` files" in prompt
-    assert "Do not create any artifact outside this output contract" in prompt
+    assert "Primary outputs owned by this phase" in prompt
     assert "V2 driver's `rescan` subprocess" not in prompt
     assert "Task(" not in prompt
     assert "_v2_checkpoint.json" in prompt

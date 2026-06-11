@@ -507,7 +507,7 @@ After every manifest-derived output exists and is at least
 
 
 def build_rescan_prompt(config: dict[str, Any]) -> str:
-    """Build a direct-execution prompt for Thorough-only rescan work."""
+    """Build a direct-execution prompt for mandatory rescan work."""
     methodology = _read_phase4_methodology().strip()
     project_root = _none_if_blank(config.get("project_root"))
     scratchpad = _none_if_blank(config.get("scratchpad"))
@@ -565,17 +565,18 @@ only when they are incomplete, stub-like, or materially wrong.
 1. Execute rescan only. Do not run inventory, semantic invariants, depth, RAG,
    chain analysis, verification, scoring, report index, report writing, or
    report assembly.
-2. This phase is Thorough-only. If the mode above is not `thorough`, stop
-   without writing outputs and explain the mode error.
-3. Read `spawn_manifest.md`, first-pass breadth outputs, recon artifacts, and
+2. This phase is mandatory after successful first-pass breadth in every mode.
+   Do not skip it because the configured mode is `light` or `core`.
+3. Do not call Task, launch subagents, or delegate work to other workers.
+4. Read `spawn_manifest.md`, first-pass breadth outputs, recon artifacts, and
    target source files as needed for additional discovery.
-4. Write only `analysis_rescan_*.md`, `analysis_percontract_*.md`,
+5. Write only `analysis_rescan_*.md`, `analysis_percontract_*.md`,
    `violations.md`, and optional `_lg_` debug notes under the scratchpad.
-5. Do not write new first-pass `analysis_*.md` files, inventory, depth, chain,
+6. Do not write new first-pass `analysis_*.md` files, inventory, depth, chain,
    verification, scoring, or report artifacts.
-6. Do not edit target source files, dependency manifests, git metadata, legacy
+7. Do not edit target source files, dependency manifests, git metadata, legacy
    `.scratchpad`, or `_v2_checkpoint.json`.
-7. Produce at least one `analysis_rescan_*.md` file and at least one
+8. Produce at least one `analysis_rescan_*.md` file and at least one
    `analysis_percontract_*.md` file. Each output must be substantive and at
    least `{RESCAN_MIN_BYTES}` bytes.
 

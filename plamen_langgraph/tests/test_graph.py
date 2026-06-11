@@ -541,18 +541,27 @@ def test_single_node_breadth_requires_valid_spawn_manifest(tmp_path):
     assert runner.calls == []
 
 
-def test_rescan_requires_thorough_mode_before_runner(tmp_path):
+def test_rescan_runs_in_core_mode(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     config = build_config(project, mode="core")
-    runner = FakeRunner()
+    runner = FakeRunner(write_artifacts=True, write_instantiate_artifact=True)
 
     state = run_graph(config, target_phase="rescan", runner=runner)
 
-    assert state["status"] == "failed"
-    assert state["failed_phase"] == "rescan"
-    assert "requires --mode thorough" in (state["error"] or "")
-    assert runner.calls == []
+    assert state["status"] == "succeeded"
+    assert state["completed_phases"] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+    ]
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+    ]
 
 
 def test_mocked_rescan_runs_full_thorough_prefix(tmp_path):
