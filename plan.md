@@ -1,4 +1,4 @@
-# Plamen LangGraph Phase 1-3 Refactor Plan
+# Plamen LangGraph Phase 1-4 Refactor Plan
 
 ## Objective
 
@@ -8,6 +8,8 @@ Phase 1 intentionally supports only one phase: `recon`.
 Phase 2 extends the same execution path to the second canonical smart-contract phase: `instantiate`.
 Phase 3 extends the same prefix to the third canonical smart-contract phase:
 `breadth`.
+Phase 4 extends the same prefix to the Thorough-only additional breadth pass:
+`rescan`.
 
 The Phase 1 goal is to prove the new architecture can:
 
@@ -34,6 +36,23 @@ The Phase 3 goal is to prove that the architecture can:
 - execute one explicitly requested phase node when its predecessor phases have
   already succeeded in a referenced LangGraph run
 - record breadth artifacts and phase status in SQLite
+- still avoid legacy driver/checkpoint mutation
+
+The Phase 4 goal is to prove that the architecture can:
+
+- execute a four-node Thorough-mode graph:
+  `recon -> instantiate -> breadth -> rescan`
+- require `mode = thorough` for `rescan`
+- consume first-pass breadth outputs as an exclusion set
+- produce bounded additional discovery artifacts:
+  `analysis_rescan_*.md` and `analysis_percontract_*.md`
+- fail the rescan phase when first-pass breadth prerequisites are incomplete
+  or when rescan outputs are missing, stub, duplicated from first pass, or
+  outside the rescan-owned output families
+- execute `rescan` as an explicitly requested single node when
+  `recon`, `instantiate`, and `breadth` already succeeded in a referenced
+  LangGraph run
+- record rescan artifacts and phase status in SQLite
 - still avoid legacy driver/checkpoint mutation
 
 ## High-Level Architecture
@@ -86,6 +105,34 @@ new CLI entry
       -> end
 ```
 
+Phase 4 target shape:
+
+```text
+new CLI entry
+  -> LangGraph graph
+      -> recon phase node
+          -> CodexRunner
+          -> recon artifact checker
+          -> SQLite state store
+      -> instantiate phase node
+          -> CodexRunner
+          -> spawn_manifest schema gate
+          -> SQLite state store
+      -> breadth phase node
+          -> spawn_manifest parser
+          -> CodexRunner
+          -> manifest-exact analysis output gate
+          -> SQLite state store
+      -> rescan phase node
+          -> mode gate: thorough only
+          -> first-pass breadth output collector
+          -> duplicate/exclusion prompt builder
+          -> CodexRunner
+          -> rescan/per-contract output gate
+          -> SQLite state store
+      -> end
+```
+
 Long-term target architecture:
 
 ```text
@@ -104,6 +151,10 @@ parallel worker scheduler. The initial LangGraph breadth node should run as a
 single phase node and may use one Codex subprocess to complete all open
 manifest outputs. Python-level fan-out, per-agent worktrees, and container
 isolation are follow-on work after manifest-exact completion is proven.
+Phase 4 implements the Thorough-only rescan slice without replacing the
+legacy parallel worker scheduler. The initial LangGraph rescan node should run
+as a single phase node and may use one Codex subprocess to complete the bounded
+rescan/per-contract output set.
 
 ## Directory Strategy
 
@@ -133,9 +184,11 @@ plamen_langgraph/
 This prevents confusion with the existing implementation:
 
 - Do not put LangGraph code in `scripts/`.
-- Do not modify `scripts/plamen_driver.py` for Phase 1, Phase 2, or Phase 3.
+- Do not modify `scripts/plamen_driver.py` for Phase 1, Phase 2, Phase 3, or
+  Phase 4.
 - Do not change the default behavior of `plamen.py`.
-- Do not replace existing checkpoint logic in Phase 1, Phase 2, or Phase 3.
+- Do not replace existing checkpoint logic in Phase 1, Phase 2, Phase 3, or
+  Phase 4.
 
 ## Existing Assets To Reuse
 
@@ -148,6 +201,7 @@ Useful existing files:
   - Phase 1 needs the `recon` phase definition from `SC_PHASES`.
   - Phase 2 needs the `instantiate` phase definition from `SC_PHASES`.
   - Phase 3 needs the `breadth` phase definition from `SC_PHASES`.
+  - Phase 4 needs the `rescan` phase definition from `SC_PHASES`.
 
 - `scripts/plamen_prompt.py`
   - Source of existing phase prompt construction logic.
@@ -161,16 +215,30 @@ Useful existing files:
   - Phase 3 should reuse the breadth manifest-exact output contract already
     enforced for `analysis_*.md`, or a local wrapper with matching accepted and
     rejected examples.
+  - Phase 4 should start with a LangGraph-local validator for rescan-owned
+    artifact families, then align with any legacy rescan gate if one is later
+    factored into a reusable function.
 
 - `scripts/plamen_parsers.py`
   - Source of `parse_breadth_manifest_outputs()` and
     `parse_breadth_manifest_count()`.
   - Phase 3 should reuse these parser semantics or keep local compatibility
     tests aligned with them.
+  - Phase 4 should reuse Phase 3's parsed breadth outputs as the first-pass
+    exclusion set; do not re-parse arbitrary `analysis_*.md` files as
+    successful breadth outputs.
+
+- `prompts/shared/v2/phase4-rescan.md`
+  - Target location for the rescan methodology body.
+  - If the repository still stores the rescan prompt under an older numbered
+    filename, rename or copy it to this Phase 4 path as part of the Phase 4
+    implementation.
+  - Phase 4 should wrap this prompt for direct LangGraph execution and strip
+    or override legacy-driver-only assumptions.
 
 - `scripts/plamen_mechanical.py`
   - Useful later for deterministic report assembly.
-  - Out of scope for Phase 1, Phase 2, and Phase 3.
+  - Out of scope for Phase 1, Phase 2, Phase 3, and Phase 4.
 
 ## Phase 1 Scope
 
@@ -253,12 +321,43 @@ all predecessor phases succeeded in that base run before the target node runs.
 The default `instantiate` and `breadth` commands still execute the full
 supported prefix.
 
+Phase 4 should add a fourth command that runs the supported SC prefix through
+`rescan`:
+
+```bash
+python -m plamen_langgraph.cli rescan /path/to/project --mode thorough
+```
+
+The `rescan` command must execute all supported nodes in order:
+
+```text
+recon -> instantiate -> breadth -> rescan
+```
+
+`rescan` is Thorough-only. If `--mode` is `light` or `core`, fail before
+invoking Codex with a clear error. Do not silently skip the requested target
+phase in the experimental LangGraph CLI.
+
+Phase 4 should also extend explicit single-node execution:
+
+```bash
+python -m plamen_langgraph.cli rescan /path/to/project \
+  --mode thorough \
+  --single-node \
+  --base-run-id <successful-breadth-run-id>
+```
+
+Single-node `rescan` must require an explicit `--base-run-id` and must validate
+that `recon`, `instantiate`, and `breadth` succeeded in that base run before
+the target node runs. It is still not automatic resume.
+
 Fallback direct execution may also be supported:
 
 ```bash
 python plamen_langgraph/cli.py recon /path/to/project
 python plamen_langgraph/cli.py instantiate /path/to/project
 python plamen_langgraph/cli.py breadth /path/to/project
+python plamen_langgraph/cli.py rescan /path/to/project --mode thorough
 ```
 
 Initial options:
@@ -301,6 +400,22 @@ Phase 3 CLI implementation tasks:
 7. Return exit code `0` only when the requested target phase succeeds.
 8. Return a non-zero exit code if prerequisite validation fails or the target
    node fails.
+
+Phase 4 CLI implementation tasks:
+
+1. Keep the existing `recon`, `instantiate`, and `breadth` command behavior
+   unchanged.
+2. Add `rescan` with the same options as `breadth`.
+3. Route prefix-mode `rescan` to a graph with `target_phase = "rescan"`.
+4. Require `--mode thorough` for both prefix and single-node `rescan`.
+5. Preserve `--single-node` and `--base-run-id` semantics.
+6. In prefix mode, print the same run summary fields: `run_id`, `status`,
+   `scratchpad`, and `db`.
+7. In single-node mode, also print `execution_mode: single_node` and
+   `base_run_id: <id>`.
+8. Return exit code `0` only when the requested target phase succeeds.
+9. Return a non-zero exit code if mode gating, prerequisite validation, or the
+   target node fails.
 
 ## Codex Runner
 
@@ -352,6 +467,9 @@ Security rules:
   implemented as one manifest-aware Codex subprocess that completes all open
   first-pass outputs, or as sequential per-output subprocesses if that is
   simpler to test. Do not add concurrent worker fan-out until isolation exists.
+- Phase 4 keeps the same constraint: the rescan phase should be one direct
+  Codex subprocess that writes all required additional outputs. Python-level
+  parallel rescan/per-contract workers are deferred until isolation exists.
 
 ## LangGraph State
 
@@ -392,6 +510,7 @@ Routing can keep deterministic:
 target_phase = "recon":       START -> recon -> END
 target_phase = "instantiate": START -> recon -> instantiate -> END
 target_phase = "breadth":     START -> recon -> instantiate -> breadth -> END
+target_phase = "rescan":      START -> recon -> instantiate -> breadth -> rescan -> END
 ```
 
 Single-node mode keeps routing deterministic but starts at exactly the requested
@@ -401,17 +520,22 @@ node after prerequisite validation:
 single_node phase = "recon":       START -> recon -> END
 single_node phase = "instantiate": START -> instantiate -> END
 single_node phase = "breadth":     START -> breadth -> END
+single_node phase = "rescan":      START -> rescan -> END
 ```
 
-Do not add dynamic branching for later phases in Phase 2 or Phase 3. The only
-conditional behavior should be:
+Do not add dynamic branching for later phases in Phase 2, Phase 3, or
+Phase 4. The only conditional behavior should be:
 
 - `instantiate` returns immediately with failed state if `recon` did not succeed.
 - `breadth` returns immediately with failed state if `instantiate` did not succeed.
+- `rescan` returns immediately with failed state if `breadth` did not succeed
+  or if `mode != "thorough"`.
 - single-node `instantiate` is allowed only when the base run has successful
   `recon` state and valid recon artifacts.
 - single-node `breadth` is allowed only when the base run has successful
   `recon` and `instantiate` state plus valid `spawn_manifest.md`.
+- single-node `rescan` is allowed only when the base run has successful
+  `recon`, `instantiate`, and `breadth` state plus valid breadth outputs.
 
 ## LangGraph Graph
 
@@ -444,6 +568,17 @@ START
   -> END
 ```
 
+Phase 4 graph shape:
+
+```text
+START
+  -> recon
+  -> instantiate
+  -> breadth
+  -> rescan
+  -> END
+```
+
 The implementation can use one graph builder with a `target_phase` argument and
 small wrappers:
 
@@ -451,6 +586,7 @@ small wrappers:
 run_recon_graph(config, runner=None)
 run_instantiate_graph(config, runner=None)
 run_breadth_graph(config, runner=None)
+run_rescan_graph(config, runner=None)
 run_phase_node(config, phase_name, base_run_id, runner=None)
 ```
 
@@ -463,6 +599,7 @@ run_graph(config, target_phase="recon", runner=None)
 Then keep `run_recon_graph()` as a compatibility wrapper for existing tests.
 Add `run_instantiate_graph()` and `run_breadth_graph()` as thin wrappers so
 tests and examples do not need to duplicate target strings.
+Add `run_rescan_graph()` as the same style of thin wrapper for Phase 4.
 Add `run_phase_node()` for explicit single-node execution. It should create a
 new LangGraph run row linked to `base_run_id`, seed `completed_phases` from the
 validated predecessor set, and invoke only the requested phase node.
@@ -523,6 +660,39 @@ The `breadth` node should:
 13. Append `breadth` to `completed_phases` only on success.
 14. Return updated state.
 
+The `rescan` node should:
+
+1. Check that `state["mode"] == "thorough"`.
+2. Check that `state["status"] == "succeeded"` and `breadth` is in
+   `completed_phases`.
+3. Re-validate `spawn_manifest.md` and every manifest-derived first-pass
+   breadth output before starting rescan work.
+4. Build the first-pass exclusion set from manifest-derived breadth outputs
+   only. Do not include prior `analysis_rescan_*.md` or
+   `analysis_percontract_*.md` files in the first-pass exclusion set.
+5. Build a deterministic open-output list for the initial LangGraph rescan
+   contract:
+   - `analysis_rescan_gap_sweep.md`
+   - `analysis_rescan_cross_check.md`
+   - `analysis_percontract_scope_review.md`
+6. If every required rescan output is already substantial, create and mark the
+   `rescan` `phase_runs` row as `succeeded` without invoking Codex.
+7. Otherwise build a Phase 4 direct-execution prompt and write it to
+   `_lg_rescan_prompt.md`.
+8. Insert a `phase_runs` row with status `running`.
+9. Call `CodexRunner`.
+10. Re-check every required rescan/per-contract output.
+11. Record one artifact row per required rescan output with
+    `phase_name = "rescan"`.
+12. Mark the phase failed if any required output is missing, stub, empty of
+    substantive findings/coverage notes, or if the worker wrote forbidden
+    later-phase artifacts such as inventory, depth, chain, verification, or
+    report artifacts.
+13. Update `phase_runs` and parent `runs` to `succeeded`, `failed`, or
+    `timeout`.
+14. Append `rescan` to `completed_phases` only on success.
+15. Return updated state.
+
 Single-node prerequisite validation should run before constructing the graph:
 
 1. Load the base run by `--base-run-id` from the configured SQLite DB.
@@ -531,10 +701,13 @@ Single-node prerequisite validation should run before constructing the graph:
    in the base run:
    - `instantiate` requires `recon`
    - `breadth` requires `recon` and `instantiate`
+   - `rescan` requires `recon`, `instantiate`, and `breadth`
 4. Re-run artifact gates for predecessor outputs instead of trusting only DB
    status:
    - `recon`: required recon artifacts exist and pass recon validation
    - `instantiate`: `spawn_manifest.md` exists and passes the schema gate
+   - `breadth`: `spawn_manifest.md` is valid and manifest-derived
+     `analysis_*.md` outputs exist and pass the breadth gate
 5. Fail before invoking Codex if any prerequisite check fails.
 6. Create a new run row with `execution_mode = "single_node"` and
    `base_run_id = <base-run-id>`.
@@ -605,7 +778,7 @@ Phase 3 prompt requirements:
      `violations.md`, and optional debug notes with `_lg_` prefix
    - do not write `analysis_rescan_*.md`, `analysis_percontract_*.md`,
      inventory, depth, chain, verification, scoring, or report artifacts
-   - do not proceed to Phase 4a inventory
+   - do not proceed to `inventory_prepare` or inventory synthesis
 5. Tell the worker that `spawn_manifest.md` is authoritative. It must not invent
    additional output filenames, count non-manifest analysis files as complete,
    or treat the manifest `Status` column as authoritative over filesystem
@@ -620,6 +793,49 @@ Phase 3 prompt requirements:
 The Phase 3 direct-execution wrapper may reuse the shared V2 breadth body, but
 it must override any legacy-driver-only assumptions. The LangGraph contract is
 manifest-exact artifact completion under `.lg_scratchpad`, not legacy
+checkpoint progression.
+
+Phase 4 prompt requirements:
+
+1. Add `build_rescan_prompt(config, open_outputs=None)` in
+   `plamen_langgraph/plamen_lg/phases.py`.
+2. Load `prompts/shared/v2/phase4-rescan.md` from the Plamen installation
+   root as the methodology body.
+3. Wrap that methodology in a LangGraph direct-execution prompt that provides:
+   - project root
+   - scratchpad
+   - pipeline
+   - mode
+   - language
+   - required input artifact: `spawn_manifest.md`
+   - manifest-derived first-pass breadth output list
+   - first-pass exclusion summary generated from the breadth outputs
+   - current open-output list, if any
+   - required output files for the initial LangGraph contract:
+     `analysis_rescan_gap_sweep.md`,
+     `analysis_rescan_cross_check.md`, and
+     `analysis_percontract_scope_review.md`
+4. Explicitly scope the worker to Phase 4 only:
+   - read `spawn_manifest.md`, recon artifacts, first-pass breadth outputs,
+     and target source files as needed for additional breadth analysis
+   - write only `analysis_rescan_*.md`, `analysis_percontract_*.md`,
+     `violations.md`, and optional debug notes with `_lg_` prefix
+   - do not write first-pass `analysis_*.md` outputs unless they are missing
+     prerequisites and the phase should fail before invoking Codex
+   - do not write inventory, semantic invariants, depth, RAG, chain,
+     verification, scoring, or report artifacts
+5. Tell the worker that first-pass breadth outputs are an exclusion set. It
+   must not re-report the same root cause or same location with a renamed
+   title.
+6. Include a direct-execution fallback rule: if this Codex execution
+   environment does not expose subagent/task tools, the rescan worker should
+   perform the additional sweeps sequentially and still write exactly the
+   required rescan outputs.
+7. Write `_lg_rescan_prompt.md` before calling Codex.
+
+The Phase 4 direct-execution wrapper may reuse the shared V2 rescan body, but
+it must override legacy-driver-only assumptions. The LangGraph contract is
+bounded additional artifact completion under `.lg_scratchpad`, not legacy
 checkpoint progression.
 
 ## Artifact Contract
@@ -740,6 +956,70 @@ Phase 3 implementation tasks:
    Extra non-manifest analysis files can be ignored or recorded as debug
    extras later, but they must not make the phase pass.
 
+Phase 4 artifact contract:
+
+```text
+analysis_rescan_*.md
+analysis_percontract_*.md
+```
+
+For the initial LangGraph rescan implementation, use a deterministic minimum
+output set instead of a dynamic rescan manifest:
+
+```text
+analysis_rescan_gap_sweep.md
+analysis_rescan_cross_check.md
+analysis_percontract_scope_review.md
+```
+
+Completion rules:
+
+- `mode` must be `thorough`.
+- `spawn_manifest.md` must exist and remain schema-valid.
+- Manifest-derived first-pass breadth outputs must still pass the Phase 3
+  breadth gate before rescan starts.
+- Every required rescan output must exist under the configured LangGraph
+  scratchpad.
+- Every required rescan output must be substantial. Use a single
+  `RESCAN_MIN_BYTES` constant and keep prompt/tests in sync. Prefer 200 bytes
+  to match the breadth gate.
+- `analysis_rescan_*.md` files must describe additional findings or explicit
+  negative coverage against under-explored surfaces, not copies of first-pass
+  breadth text.
+- `analysis_percontract_scope_review.md` must either contain per-contract or
+  inheritance-cluster review notes, or a substantive explanation of why no
+  meaningful cluster exists and what files were checked.
+- First-pass `analysis_*.md` files do not satisfy rescan output requirements.
+- Inventory, semantic invariant, depth, RAG, chain, verification, scoring, and
+  report files are not rescan outputs.
+
+Phase 4 implementation tasks:
+
+1. Add `RESCAN_MIN_BYTES = 200` and a deterministic
+   `RESCAN_REQUIRED_ARTIFACTS` list in
+   `plamen_langgraph/plamen_lg/artifacts.py`.
+2. Add `expected_rescan_artifacts(scratchpad) -> list[str]` that returns the
+   deterministic required rescan outputs for now.
+3. Add `rescan_open_outputs(scratchpad) -> list[str]` mirroring
+   `breadth_open_outputs()`.
+4. Add `forbidden_rescan_artifacts(scratchpad) -> list[str]` for later-phase
+   output families.
+5. Extend `validate_phase_artifacts("rescan", scratchpad, records)` with:
+   - non-thorough mode when mode is available to the validator, or enforce
+     mode in the graph node before validation
+   - invalid/missing `spawn_manifest.md`
+   - missing or stub first-pass breadth prerequisites
+   - missing required rescan output
+   - stub required rescan output
+   - forbidden later-phase output family
+6. Add a lightweight duplicate guard that fails when a required rescan output
+   is byte-identical to any first-pass breadth output. Semantic duplicate
+   detection is deferred to later phases; this guard only catches copy/paste
+   or wrong-output mistakes.
+7. Record only required rescan outputs as required `rescan` artifacts. Extra
+   `analysis_rescan_*.md` files can be recorded as debug extras later, but they
+   must not compensate for a missing required output.
+
 ## SQLite Store
 
 Create `plamen_langgraph/plamen_lg/store.py`.
@@ -806,6 +1086,18 @@ existing tables:
 - artifact rows with `phase_name = "breadth"` for every manifest-derived
   `analysis_*.md` output
 
+Prefix-mode Phase 4 does not need additional tables. It should reuse the
+existing tables:
+
+- one row in `runs`
+- one `phase_runs` row each for `recon`, `instantiate`, `breadth`, and `rescan`
+- artifact rows with `phase_name = "recon"` for recon outputs
+- artifact row with `phase_name = "instantiate"` for `spawn_manifest.md`
+- artifact rows with `phase_name = "breadth"` for every manifest-derived
+  first-pass `analysis_*.md` output
+- artifact rows with `phase_name = "rescan"` for every required
+  `analysis_rescan_*.md` and `analysis_percontract_*.md` output
+
 Single-node mode needs a small backward-compatible schema migration:
 
 ```sql
@@ -830,23 +1122,28 @@ Do not mutate the base run's `runs.status`, `runs.phase`, or existing
 `phase_runs` rows when running a single node. The base run is evidence for
 prerequisites, not the mutable owner of the new node attempt.
 
-For Phase 2 and Phase 3, the `runs.phase` column should store the requested
-target phase:
+For Phase 2, Phase 3, and Phase 4, the `runs.phase` column should store the
+requested target phase:
 
 ```text
 recon        # `python -m plamen_langgraph.cli recon ...`
 instantiate  # `python -m plamen_langgraph.cli instantiate ...`
 breadth      # `python -m plamen_langgraph.cli breadth ...`
+rescan       # `python -m plamen_langgraph.cli rescan --mode thorough ...`
 ```
 
 In single-node mode, `runs.phase` still stores the requested target phase; use
 `runs.execution_mode` to distinguish prefix runs from single-node runs.
 
-Do not add checkpoint tables, worker tables, or worktree tables in Phase 2 or
-the initial Phase 3. If sequential per-output breadth subprocesses are used,
+Do not add checkpoint tables, worker tables, or worktree tables in Phase 2,
+the initial Phase 3, or the initial Phase 4. If sequential per-output breadth
+subprocesses are used,
 aggregate them into one `breadth` `phase_runs` row for now and store their
 detailed stdout/stderr in deterministic `_lg_breadth_*` debug files or a
 documented `_lg_breadth_agents/` subdirectory.
+Do the same for Phase 4: aggregate rescan work into one `rescan`
+`phase_runs` row and deterministic `_lg_rescan_*` debug files. Do not add a
+rescan worker table until parallel isolation exists.
 
 State transitions:
 
@@ -891,6 +1188,12 @@ yet. `--single-node` and `--base-run-id` are explicit node execution controls,
 not broad automatic resume. Do not add "latest run" discovery, partial graph
 auto-resume, or checkpoint replay flags yet.
 
+For Phase 4, keep the same config fields. `rescan` must validate
+`mode == "thorough"` from config before invoking Codex. Add local constants for
+the rescan minimum byte threshold and required output filenames. Do not add
+broad legacy config compatibility, automatic skip semantics for non-thorough
+modes, or checkpoint replay flags yet.
+
 ## Isolation Rules
 
 Phase 1 uses the target repository directly, but documents the future isolation model.
@@ -911,6 +1214,18 @@ Rules for Phase 3:
 - Write breadth outputs only under the configured LangGraph scratchpad.
 - Do not write or mutate legacy `.scratchpad/_v2_checkpoint.json`.
 - Do not let breadth workers edit target source files or dependency manifests.
+- Single-node mode must hold the same run lock as prefix mode.
+- Single-node mode must not mutate the base run it depends on.
+
+Rules for Phase 4:
+
+- Keep one LangGraph run lock per project.
+- Require Thorough mode before invoking the rescan worker.
+- Do not run Python-level parallel Codex subprocesses against the same writable
+  project until worktree/container isolation is implemented.
+- Write rescan outputs only under the configured LangGraph scratchpad.
+- Do not write or mutate legacy `.scratchpad/_v2_checkpoint.json`.
+- Do not let rescan workers edit target source files or dependency manifests.
 - Single-node mode must hold the same run lock as prefix mode.
 - Single-node mode must not mutate the base run it depends on.
 
@@ -943,8 +1258,16 @@ For a run with ID `<run_id>`, write:
   _lg_breadth_stderr.log
   _lg_breadth_events.jsonl
   _lg_breadth_last_message.md
+  _lg_rescan_prompt.md
+  _lg_rescan_stdout.log
+  _lg_rescan_stderr.log
+  _lg_rescan_events.jsonl
+  _lg_rescan_last_message.md
   spawn_manifest.md
   analysis_<focus_area>.md
+  analysis_rescan_gap_sweep.md
+  analysis_rescan_cross_check.md
+  analysis_percontract_scope_review.md
 ```
 
 These files are separate from legacy driver files and should not collide with `_v2_checkpoint.json` or `_plamen.log`.
@@ -1023,6 +1346,47 @@ Phase 3 test targets:
   pass unchanged.
 - Legacy files such as `_v2_checkpoint.json` are still not created or modified.
 
+Phase 4 test targets:
+
+- `get_phase("rescan")` returns the canonical SC rescan phase metadata and
+  carries Thorough-only mode semantics.
+- `build_rescan_prompt()` includes the Phase 4 methodology body, lists
+  manifest-derived first-pass breadth outputs, lists the deterministic rescan
+  required outputs, and forbids inventory/depth/report work.
+- `python -m plamen_langgraph.cli rescan ... --mode thorough` parses the same
+  options as `breadth`.
+- `python -m plamen_langgraph.cli rescan ... --mode core` fails before invoking
+  Codex.
+- `python -m plamen_langgraph.cli rescan ... --mode thorough --single-node
+  --base-run-id ...` parses single-node options and preserves the target phase.
+- Mocked `run_graph(target_phase="rescan")` calls the runner in order:
+  `recon`, `instantiate`, `breadth`, then `rescan`.
+- Mocked `run_phase_node("rescan", base_run_id=...)` calls the runner once for
+  `rescan` when the base run has successful `recon`, `instantiate`, and
+  `breadth`.
+- Single-node `rescan` fails before invoking Codex when the base run lacks
+  successful predecessor phase rows.
+- Single-node `rescan` fails before invoking Codex when `spawn_manifest.md` is
+  invalid or manifest-derived first-pass breadth outputs are missing/stub.
+- Prefix-mode `rescan` is not called if `breadth` fails.
+- Mocked successful rescan writes
+  `analysis_rescan_gap_sweep.md`,
+  `analysis_rescan_cross_check.md`, and
+  `analysis_percontract_scope_review.md`, records four phase rows, and marks
+  the run `succeeded`.
+- Missing required rescan output marks `rescan` and the parent run `failed`.
+- Stub required rescan output marks `rescan` and the parent run `failed`.
+- Byte-identical copies of first-pass breadth output fail the lightweight
+  duplicate guard.
+- Extra `analysis_rescan_*.md` files do not compensate for a missing required
+  rescan output.
+- Forbidden later-phase files such as inventory, depth, verify, or report
+  outputs do not count as rescan completion.
+- Rescan artifact rows are recorded with `phase_name = "rescan"`.
+- Existing `run_recon_graph()`, `run_instantiate_graph()`, and
+  `run_breadth_graph()` tests continue to pass unchanged.
+- Legacy files such as `_v2_checkpoint.json` are still not created or modified.
+
 Do not require a real Codex CLI call in unit tests. Real Codex invocation can be covered by a manual smoke test.
 
 ## Manual Smoke Test
@@ -1045,6 +1409,12 @@ Phase 3 smoke command:
 python -m plamen_langgraph.cli breadth /path/to/small/project
 ```
 
+Phase 4 smoke command:
+
+```bash
+python -m plamen_langgraph.cli rescan /path/to/small/project --mode thorough
+```
+
 Single-node smoke command after a successful prefix run:
 
 ```bash
@@ -1053,6 +1423,10 @@ python -m plamen_langgraph.cli instantiate /path/to/small/project
 python -m plamen_langgraph.cli breadth /path/to/small/project \
   --single-node \
   --base-run-id <printed-run-id>
+python -m plamen_langgraph.cli rescan /path/to/small/project \
+  --mode thorough \
+  --single-node \
+  --base-run-id <breadth-run-id>
 ```
 
 Then verify:
@@ -1071,7 +1445,8 @@ Expected result:
 - `runs.status = succeeded` if all required recon artifacts exist.
 - `phase_runs.status = succeeded`.
 - required recon artifacts exist under `.lg_scratchpad`.
-- Phase 2 and Phase 3: `spawn_manifest.md` exists under `.lg_scratchpad`.
+- Phase 2, Phase 3, and Phase 4: `spawn_manifest.md` exists under
+  `.lg_scratchpad`.
 - Phase 2 only: `phase_runs` contains exactly one `recon` row and one
   `instantiate` row.
 - Phase 3 only: manifest-derived `analysis_*.md` files exist under
@@ -1079,6 +1454,11 @@ Expected result:
 - Phase 3 only: `phase_runs` contains exactly one `recon` row, one
   `instantiate` row, and one `breadth` row.
 - Phase 3 only: `artifacts` contains one `breadth` row per manifest-derived
+  output.
+- Phase 4 only: required rescan outputs exist under `.lg_scratchpad`.
+- Phase 4 only: `phase_runs` contains exactly one `recon` row, one
+  `instantiate` row, one `breadth` row, and one `rescan` row.
+- Phase 4 only: `artifacts` contains one `rescan` row per required rescan
   output.
 - Single-node only: the new `runs` row has `execution_mode = single_node`,
   `base_run_id` set to the referenced prefix run, and only the target
@@ -1118,7 +1498,7 @@ Rationale:
 - It exercises a stricter phase-specific validator through `spawn_manifest.md`.
 
 Do not implement `inventory_prepare` in Phase 2. In the legacy SC graph it is a
-later Phase 4a mechanical step after breadth/rescan, not the second phase.
+later mechanical step after breadth/rescan, not the second phase.
 
 Phase 2 development checklist:
 
@@ -1245,7 +1625,107 @@ Phase 3 acceptance criteria:
 18. A manual smoke test can produce a valid `spawn_manifest.md` and the
     manifest-derived breadth analysis files.
 
-Deferred after Phase 3:
+## Phase 4 Implementation Plan
+
+Phase 4 should implement the Thorough-only rescan phase from `SC_PHASES`:
+
+```text
+recon -> instantiate -> breadth -> rescan
+```
+
+Rationale:
+
+- `rescan` is the canonical post-breadth additional discovery phase in
+  `scripts/plamen_types.py`.
+- It consumes the first-pass breadth outputs and intentionally searches for
+  findings the first pass missed.
+- It produces additional discovery artifacts consumed later by inventory:
+  `analysis_rescan_*.md` and `analysis_percontract_*.md`.
+- It is mode-gated to Thorough mode, so it exercises phase availability checks
+  without adding full legacy mode pruning.
+
+Do not implement `inventory_prepare`, inventory, semantic invariants, depth,
+RAG, chain, verification, scoring, or report work in Phase 4. Do not replace
+the legacy parallel worker scheduler yet. The first Phase 4 target is a
+correct, testable rescan phase boundary with deterministic required outputs;
+dynamic rescan manifests and parallel fan-out can be added after
+worktree/container isolation is designed.
+
+Phase 4 development checklist:
+
+1. Add `rescan` to `SUPPORTED_TARGET_PHASES`.
+2. Add `get_phase("rescan")` support using the canonical SC phase metadata,
+   including Thorough-only mode semantics.
+3. Add `build_rescan_prompt(config, open_outputs=None)` using
+   `prompts/shared/v2/phase4-rescan.md`.
+4. Add `run_rescan_graph()` as a wrapper around
+   `run_graph(config, target_phase="rescan")`.
+5. Extend `build_graph()` so `target_phase = "rescan"` compiles
+   `recon -> instantiate -> breadth -> rescan`.
+6. Extend `_predecessors_for("rescan")` to require `recon`, `instantiate`, and
+   `breadth`.
+7. Add a rescan mode gate in prefix and single-node paths:
+   `mode` must equal `thorough` before invoking Codex.
+8. Add `rescan` to the CLI with the same options as `breadth`.
+9. In CLI single-node mode, require `--base-run-id` for `rescan`.
+10. Add `RESCAN_MIN_BYTES = 200` and `RESCAN_REQUIRED_ARTIFACTS` in
+    `plamen_langgraph/plamen_lg/artifacts.py`.
+11. Add `expected_rescan_artifacts()`, `rescan_open_outputs()`, and
+    `forbidden_rescan_artifacts()`.
+12. Extend `validate_phase_artifacts("rescan", scratchpad, records)` with the
+    rescan contract described above.
+13. Reuse the breadth parser to derive first-pass outputs; do not accept
+    arbitrary `analysis_*.md` files as breadth prerequisites.
+14. Add a lightweight byte-identical duplicate guard comparing required rescan
+    outputs against manifest-derived first-pass breadth outputs.
+15. Teach the graph node to record one artifact row per required rescan output.
+16. Update `plamen_langgraph/README.md` to document the rescan command,
+    Thorough-only behavior, single-node command shape, and `_lg_rescan_*`
+    debug files.
+17. Add unit tests before manual smoke testing.
+18. Run existing Phase 1, Phase 2, and Phase 3 tests to prove behavior did not
+    regress.
+
+Phase 4 acceptance criteria:
+
+1. `python -m plamen_langgraph.cli recon /path/to/project` still runs only
+   `recon`.
+2. `python -m plamen_langgraph.cli instantiate /path/to/project` still runs
+   `recon -> instantiate`.
+3. `python -m plamen_langgraph.cli breadth /path/to/project` still runs
+   `recon -> instantiate -> breadth`.
+4. `python -m plamen_langgraph.cli rescan /path/to/project --mode thorough`
+   runs `recon -> instantiate -> breadth -> rescan`.
+5. `python -m plamen_langgraph.cli rescan /path/to/project --mode core` fails
+   before invoking Codex.
+6. `python -m plamen_langgraph.cli rescan /path/to/project --mode thorough
+   --single-node --base-run-id <id>` runs only `rescan` after validating
+   predecessor success and artifacts.
+7. If `recon`, `instantiate`, or `breadth` fails, `rescan` is not executed in
+   prefix mode.
+8. `spawn_manifest.md` and manifest-derived breadth outputs are revalidated
+   before rescan work starts.
+9. The rescan gate requires
+   `analysis_rescan_gap_sweep.md`,
+   `analysis_rescan_cross_check.md`, and
+   `analysis_percontract_scope_review.md` to exist and be substantial.
+10. Extra `analysis_rescan_*.md` or `analysis_percontract_*.md` files do not
+    satisfy missing required outputs.
+11. Later-phase output families do not satisfy the gate.
+12. Byte-identical copies of first-pass breadth outputs fail the duplicate
+    guard.
+13. The prefix run has four successful `phase_runs` rows when all four phases
+    pass.
+14. Rescan artifact rows are recorded with `phase_name = "rescan"` and exact
+    required paths.
+15. No inventory, depth, verification, scoring, or report artifacts are
+    required by Phase 4.
+16. No legacy checkpoint is written.
+17. Unit tests pass with mocked runners.
+18. A manual smoke test can produce valid first-pass breadth outputs and the
+    required rescan/per-contract outputs.
+
+Deferred after Phase 4:
 
 - worktree isolation
 - parallel worker policy
