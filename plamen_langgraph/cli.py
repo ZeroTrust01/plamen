@@ -44,6 +44,16 @@ def _build_parser() -> argparse.ArgumentParser:
         )
         command.add_argument("--codex-bin", default="codex")
         command.add_argument("--timeout-s", type=int, default=3000)
+        command.add_argument(
+            "--single-node",
+            action="store_true",
+            help="Run only the requested phase after explicit predecessor validation.",
+        )
+        command.add_argument(
+            "--base-run-id",
+            default=None,
+            help="Successful predecessor run id required for single-node tail phases.",
+        )
 
     recon = sub.add_parser("recon", help="Run the Phase-1 recon graph.")
     add_common_options(recon)
@@ -52,6 +62,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run the supported Phase-2 graph prefix: recon -> instantiate.",
     )
     add_common_options(instantiate)
+    breadth = sub.add_parser(
+        "breadth",
+        help="Run the supported Phase-3 graph prefix: recon -> instantiate -> breadth.",
+    )
+    add_common_options(breadth)
     return parser
 
 
@@ -78,14 +93,30 @@ def main(argv: list[str] | None = None) -> int:
         timeout_s=args.timeout_s,
     )
     if __package__ in (None, ""):
-        from plamen_langgraph.plamen_lg.graph import run_graph
+        from plamen_langgraph.plamen_lg.graph import run_graph, run_phase_node
     else:
-        from .plamen_lg.graph import run_graph
+        from .plamen_lg.graph import run_graph, run_phase_node
 
-    state = run_graph(config, target_phase=args.command)
+    if args.single_node:
+        if args.command in {"instantiate", "breadth"} and not args.base_run_id:
+            print(
+                f"error: {args.command} --single-node requires --base-run-id",
+                file=sys.stderr,
+            )
+            return 2
+        state = run_phase_node(
+            config,
+            phase_name=args.command,
+            base_run_id=args.base_run_id,
+        )
+    else:
+        state = run_graph(config, target_phase=args.command)
 
     print(f"run_id: {state['run_id']}")
     print(f"status: {state['status']}")
+    if state.get("execution_mode") == "single_node":
+        print("execution_mode: single_node")
+        print(f"base_run_id: {state.get('base_run_id') or ''}")
     print(f"scratchpad: {state['scratchpad']}")
     print(f"db: {state['db_path']}")
     if state.get("error"):

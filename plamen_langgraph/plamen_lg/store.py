@@ -14,9 +14,11 @@ def utc_now() -> str:
 SCHEMA = """
 create table if not exists runs (
   id text primary key,
+  base_run_id text,
   project_root text not null,
   scratchpad text not null,
   phase text not null,
+  execution_mode text not null default 'prefix',
   status text not null,
   created_at text not null,
   updated_at text not null
@@ -65,6 +67,19 @@ class StateStore:
     def init_db(self) -> None:
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+            self._migrate_runs_table(conn)
+
+    def _migrate_runs_table(self, conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("pragma table_info(runs)").fetchall()
+        }
+        if "base_run_id" not in columns:
+            conn.execute("alter table runs add column base_run_id text")
+        if "execution_mode" not in columns:
+            conn.execute(
+                "alter table runs add column execution_mode text not null default 'prefix'"
+            )
 
     def create_run(
         self,
@@ -73,15 +88,29 @@ class StateStore:
         scratchpad: str,
         phase: str,
         status: str = "pending",
+        base_run_id: str | None = None,
+        execution_mode: str = "prefix",
     ) -> None:
         now = utc_now()
         with self.connect() as conn:
             conn.execute(
                 """
-                insert into runs (id, project_root, scratchpad, phase, status, created_at, updated_at)
-                values (?, ?, ?, ?, ?, ?, ?)
+                insert into runs
+                  (id, base_run_id, project_root, scratchpad, phase, execution_mode,
+                   status, created_at, updated_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (run_id, project_root, scratchpad, phase, status, now, now),
+                (
+                    run_id,
+                    base_run_id,
+                    project_root,
+                    scratchpad,
+                    phase,
+                    execution_mode,
+                    status,
+                    now,
+                    now,
+                ),
             )
 
     def update_run_status(self, run_id: str, status: str) -> None:

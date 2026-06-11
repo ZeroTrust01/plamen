@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .artifacts import BREADTH_MIN_BYTES, expected_breadth_artifacts
+
 
 RECON_ARTIFACTS = [
     "recon_summary.md",
@@ -144,6 +146,14 @@ def get_phase(name: str, pipeline: str = "sc") -> Any:
             base_timeout_s=600,
             critical=True,
         )
+    if name == "breadth":
+        return SimplePhase(
+            name="breadth",
+            section_markers=["Phase 3: Parallel Analysis"],
+            expected_artifacts=["analysis_*.md"],
+            base_timeout_s=10800,
+            critical=True,
+        )
     raise ValueError(f"unsupported LangGraph phase: {name}")
 
 
@@ -153,6 +163,11 @@ def expected_phase_artifacts(name: str, pipeline: str = "sc") -> list[str]:
 
 def _read_phase2_methodology() -> str:
     path = _repo_root() / "prompts" / "shared" / "v2" / "phase2-instantiate.md"
+    return path.read_text(encoding="utf-8")
+
+
+def _read_phase3_methodology() -> str:
+    path = _repo_root() / "prompts" / "shared" / "v2" / "phase3-breadth.md"
     return path.read_text(encoding="utf-8")
 
 
@@ -370,11 +385,106 @@ exactly one concise summary:
 """
 
 
-def build_phase_prompt(name: str, config: dict[str, Any]) -> str:
+def build_breadth_prompt(
+    config: dict[str, Any],
+    open_outputs: list[str] | None = None,
+) -> str:
+    methodology = _read_phase3_methodology()
+    project_root = _none_if_blank(config.get("project_root"))
+    scratchpad = _none_if_blank(config.get("scratchpad"))
+    db_path = _none_if_blank(config.get("db_path"))
+    language = _none_if_blank(config.get("language", "evm"))
+    mode = _none_if_blank(config.get("mode", "core"))
+    pipeline = _none_if_blank(config.get("pipeline", "sc"))
+    expected_outputs = expected_breadth_artifacts(scratchpad)
+    expected_list = (
+        "\n".join(f"- `{name}`" for name in expected_outputs)
+        if expected_outputs
+        else "- `(none parsed; fail before running if this remains true)`"
+    )
+    open_list = (
+        "\n".join(f"- `{name}`" for name in open_outputs)
+        if open_outputs
+        else "- `(none; all manifest-derived outputs are already substantial)`"
+    )
+
+    return f"""# Plamen LangGraph Breadth Direct-Execution Prompt
+
+You are running only the `breadth` phase of Plamen's smart-contract audit
+pipeline. This prompt is generated directly by `plamen_langgraph`; use the
+Phase 3 methodology below only to produce manifest-derived first-pass breadth
+analysis outputs.
+
+## Configuration
+
+- Project root: `{project_root}`
+- Scratchpad: `{scratchpad}`
+- LangGraph database: `{db_path}`
+- Pipeline: `{pipeline}`
+- Mode: `{mode}`
+- Language: `{language}`
+- Required input artifact: `spawn_manifest.md`
+- Breadth minimum output size: `{BREADTH_MIN_BYTES}` bytes
+
+## Manifest-Derived Expected Outputs
+
+`spawn_manifest.md` is authoritative. The breadth phase is complete only when
+every file in this list exists under the scratchpad and is at least
+`{BREADTH_MIN_BYTES}` bytes:
+
+{expected_list}
+
+## Current Open Outputs
+
+Create or refresh only these missing/stub expected outputs during this run:
+
+{open_list}
+
+## Hard Scope
+
+1. Execute breadth only. Do not run re-scan, per-contract review, inventory,
+   semantic invariants, depth, RAG, chain analysis, verification, scoring,
+   report index, report writing, or report assembly.
+2. Read `spawn_manifest.md`, recon artifacts, and target source files as needed
+   for breadth analysis.
+3. Write only manifest-derived first-pass `analysis_*.md` outputs,
+   `violations.md`, and optional `_lg_` debug notes under the scratchpad.
+4. Do not write `analysis_rescan_*.md`, `analysis_percontract_*.md`,
+   `analysis_merged_into_*.md`, inventory, depth, chain, verification,
+   scoring, or report artifacts.
+5. Do not edit target source files, dependency manifests, git metadata, legacy
+   `.scratchpad`, or `_v2_checkpoint.json`.
+6. Do not treat the manifest `Status` column as completion evidence. Completion
+   comes from filesystem existence and size only.
+7. Do not invent extra breadth output filenames. Non-manifest `analysis_*.md`
+   files do not count toward completion.
+8. If this Codex environment does not expose subagent/task tools, perform the
+   open breadth analyses yourself sequentially and still write exactly the
+   manifest-derived outputs.
+
+## Methodology Body
+
+{methodology}
+
+## Return
+
+After every manifest-derived output exists and is at least
+`{BREADTH_MIN_BYTES}` bytes, return exactly one concise summary:
+`BREADTH COMPLETE: <output_count> manifest outputs complete, limitations: <short list>`.
+"""
+
+
+def build_phase_prompt(
+    name: str,
+    config: dict[str, Any],
+    open_outputs: list[str] | None = None,
+) -> str:
     if name == "recon":
         return build_recon_prompt(config)
     if name == "instantiate":
         return build_instantiate_prompt(config)
+    if name == "breadth":
+        return build_breadth_prompt(config, open_outputs=open_outputs)
     raise ValueError(f"unsupported LangGraph phase: {name}")
 
 

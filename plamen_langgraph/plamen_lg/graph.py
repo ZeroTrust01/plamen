@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from contextlib import contextmanager
 import os
 import uuid
 from typing import Any, Callable
 
-from .artifacts import check_artifacts, validate_phase_artifacts
+from .artifacts import (
+    breadth_open_outputs,
+    check_artifacts,
+    expected_breadth_artifacts,
+    validate_phase_artifacts,
+    validate_spawn_manifest_schema,
+)
 from .config import AuditConfig
 from .phases import build_phase_prompt, expected_phase_artifacts
 from .runner import CodexRunner
@@ -20,7 +27,7 @@ except ImportError:  # pragma: no cover - exercised only when dependency is abse
     StateGraph = None
 
 
-SUPPORTED_TARGET_PHASES = {"recon", "instantiate"}
+SUPPORTED_TARGET_PHASES = {"recon", "instantiate", "breadth"}
 
 
 def _output_paths(scratchpad: str | Path, phase_name: str) -> dict[str, Path]:
@@ -56,16 +63,52 @@ def _dedupe_issues(issues: list[str]) -> list[str]:
     return result
 
 
+def _predecessors_for(phase_name: str) -> list[str]:
+    if phase_name == "recon":
+        return []
+    if phase_name == "instantiate":
+        return ["recon"]
+    if phase_name == "breadth":
+        return ["recon", "instantiate"]
+    raise ValueError(f"unsupported target phase: {phase_name}")
+
+
+def _phase_preconditions_met(phase_name: str, state: AuditState) -> bool:
+    if state.get("status") != "succeeded":
+        return False
+    completed = set(state.get("completed_phases", []))
+    return all(phase in completed for phase in _predecessors_for(phase_name))
+
+
+@contextmanager
+def _run_lock(scratchpad: str | Path):
+    scratch = Path(scratchpad)
+    scratch.mkdir(parents=True, exist_ok=True)
+    lock_path = scratch / "_lg_run.lock"
+    lock_fd: int | None = None
+    try:
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(lock_fd, f"{os.getpid()}\n".encode("utf-8"))
+    except FileExistsError as exc:
+        raise RuntimeError(f"another plamen_langgraph run is active: {lock_path}") from exc
+    try:
+        yield
+    finally:
+        if lock_fd is not None:
+            os.close(lock_fd)
+        try:
+            lock_path.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def _make_phase_node(
     phase_name: str,
     runner: Any | None = None,
     timeout_s: int = 3000,
 ) -> Callable[[AuditState], AuditState]:
     def phase_node(state: AuditState) -> AuditState:
-        if phase_name == "instantiate" and (
-            state.get("status") != "succeeded"
-            or "recon" not in state.get("completed_phases", [])
-        ):
+        if phase_name != "recon" and not _phase_preconditions_met(phase_name, state):
             return state
 
         scratchpad = Path(state["scratchpad"])
@@ -87,7 +130,89 @@ def _make_phase_node(
 
         paths = _output_paths(scratchpad, phase_name)
         try:
-            prompt = build_phase_prompt(phase_name, dict(state))
+            open_outputs: list[str] | None = None
+            expected_artifacts = expected_phase_artifacts(
+                phase_name,
+                state["pipeline"],
+            )
+            if phase_name == "breadth":
+                expected_artifacts = expected_breadth_artifacts(scratchpad)
+                preflight_issues = validate_spawn_manifest_schema(scratchpad)
+                if not expected_artifacts:
+                    preflight_issues.append(
+                        "spawn_manifest.md schema invalid: zero manifest-derived breadth outputs"
+                    )
+                if preflight_issues:
+                    artifacts = check_artifacts(scratchpad, expected_artifacts)
+                    store.record_artifacts(
+                        state["run_id"],
+                        phase_name,
+                        artifacts["records"],
+                    )
+                    error = "; ".join(_dedupe_issues(preflight_issues))
+                    store.update_phase_run(
+                        phase_run_id,
+                        "failed",
+                        finished_at=utc_now(),
+                        error=error,
+                    )
+                    store.update_run_status(state["run_id"], "failed")
+                    next_state = dict(state)
+                    next_state["current_phase"] = phase_name
+                    next_state["status"] = "failed"
+                    next_state["error"] = error
+                    next_state["failed_phase"] = phase_name
+                    return next_state  # type: ignore[return-value]
+
+                open_outputs = breadth_open_outputs(scratchpad)
+                if not open_outputs:
+                    artifacts = check_artifacts(scratchpad, expected_artifacts)
+                    store.record_artifacts(
+                        state["run_id"],
+                        phase_name,
+                        artifacts["records"],
+                    )
+                    validation_issues = validate_phase_artifacts(
+                        phase_name,
+                        scratchpad,
+                        artifacts["records"],
+                    )
+                    if validation_issues:
+                        phase_status = "failed"
+                        run_status = "failed"
+                        error = "; ".join(_dedupe_issues(validation_issues))
+                    else:
+                        phase_status = "succeeded"
+                        run_status = "succeeded"
+                        error = None
+                    store.update_phase_run(
+                        phase_run_id,
+                        phase_status,
+                        returncode=0,
+                        started_at=started_at,
+                        finished_at=utc_now(),
+                        error=error,
+                    )
+                    store.update_run_status(state["run_id"], run_status)
+                    next_state = dict(state)
+                    next_state["current_phase"] = phase_name
+                    next_state["status"] = run_status
+                    next_state["error"] = error
+                    if phase_status == "succeeded":
+                        completed = list(next_state.get("completed_phases", []))
+                        if phase_name not in completed:
+                            completed.append(phase_name)
+                        next_state["completed_phases"] = completed
+                        next_state["failed_phase"] = None
+                    else:
+                        next_state["failed_phase"] = phase_name
+                    return next_state  # type: ignore[return-value]
+
+            prompt = build_phase_prompt(
+                phase_name,
+                dict(state),
+                open_outputs=open_outputs,
+            )
             paths["prompt_path"].write_text(prompt, encoding="utf-8")
 
             active_runner = runner or CodexRunner()
@@ -100,10 +225,9 @@ def _make_phase_node(
             )
             result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
 
-            artifacts = check_artifacts(
-                scratchpad,
-                expected_phase_artifacts(phase_name, state["pipeline"]),
-            )
+            if phase_name == "breadth":
+                expected_artifacts = expected_breadth_artifacts(scratchpad)
+            artifacts = check_artifacts(scratchpad, expected_artifacts)
             store.record_artifacts(state["run_id"], phase_name, artifacts["records"])
             validation_issues = validate_phase_artifacts(
                 phase_name,
@@ -188,8 +312,10 @@ def build_graph(
         raise ValueError(f"unsupported target phase: {target_phase}")
     recon_node = _make_phase_node("recon", runner, timeout_s)
     nodes = [("recon", recon_node)]
-    if target_phase == "instantiate":
+    if target_phase in {"instantiate", "breadth"}:
         nodes.append(("instantiate", _make_phase_node("instantiate", runner, timeout_s)))
+    if target_phase == "breadth":
+        nodes.append(("breadth", _make_phase_node("breadth", runner, timeout_s)))
     if StateGraph is None:
         return _SequentialGraph([node for _name, node in nodes])
 
@@ -197,7 +323,11 @@ def build_graph(
     for name, node in nodes:
         graph.add_node(name, node)
     graph.add_edge(START, "recon")
-    if target_phase == "instantiate":
+    if target_phase == "breadth":
+        graph.add_edge("recon", "instantiate")
+        graph.add_edge("instantiate", "breadth")
+        graph.add_edge("breadth", END)
+    elif target_phase == "instantiate":
         graph.add_edge("recon", "instantiate")
         graph.add_edge("instantiate", END)
     else:
@@ -209,18 +339,23 @@ def initial_state(
     config: AuditConfig,
     run_id: str | None = None,
     target_phase: str = "recon",
+    base_run_id: str | None = None,
+    execution_mode: str = "prefix",
+    completed_phases: list[str] | None = None,
 ) -> AuditState:
     return {
         "run_id": run_id or str(uuid.uuid4()),
+        "base_run_id": base_run_id,
         "project_root": config.project_root,
         "scratchpad": config.scratchpad,
         "db_path": config.db_path,
         "pipeline": config.pipeline,
         "mode": config.mode,
         "language": config.language,
-        "current_phase": "recon",
+        "execution_mode": execution_mode,
+        "current_phase": target_phase if execution_mode == "single_node" else "recon",
         "target_phase": target_phase,
-        "completed_phases": [],
+        "completed_phases": list(completed_phases or []),
         "failed_phase": None,
         "status": "pending",
         "error": None,
@@ -236,15 +371,7 @@ def run_graph(
         raise ValueError(f"unsupported target phase: {target_phase}")
     scratchpad = Path(config.scratchpad)
     scratchpad.mkdir(parents=True, exist_ok=True)
-    lock_path = scratchpad / "_lg_run.lock"
-    lock_fd: int | None = None
-    try:
-        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.write(lock_fd, f"{os.getpid()}\n".encode("utf-8"))
-    except FileExistsError as exc:
-        raise RuntimeError(f"another plamen_langgraph run is active: {lock_path}") from exc
-
-    try:
+    with _run_lock(scratchpad):
         store = StateStore(config.db_path)
         store.init_db()
 
@@ -255,6 +382,7 @@ def run_graph(
             config.scratchpad,
             target_phase,
             "pending",
+            execution_mode="prefix",
         )
         active_runner = runner or CodexRunner(config.codex_bin)
         return build_graph(
@@ -262,13 +390,6 @@ def run_graph(
             timeout_s=config.timeout_s,
             target_phase=target_phase,
         ).invoke(state)
-    finally:
-        if lock_fd is not None:
-            os.close(lock_fd)
-        try:
-            lock_path.unlink()
-        except FileNotFoundError:
-            pass
 
 
 def run_recon_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
@@ -277,3 +398,148 @@ def run_recon_graph(config: AuditConfig, runner: Any | None = None) -> AuditStat
 
 def run_instantiate_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
     return run_graph(config, target_phase="instantiate", runner=runner)
+
+
+def run_breadth_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
+    return run_graph(config, target_phase="breadth", runner=runner)
+
+
+def _same_resolved_path(left: str, right: str) -> bool:
+    return Path(left).expanduser().resolve() == Path(right).expanduser().resolve()
+
+
+def _failed_single_node_state(
+    config: AuditConfig,
+    phase_name: str,
+    base_run_id: str | None,
+    error: str,
+) -> AuditState:
+    state = initial_state(
+        config,
+        target_phase=phase_name,
+        base_run_id=base_run_id,
+        execution_mode="single_node",
+    )
+    state["status"] = "failed"
+    state["failed_phase"] = phase_name
+    state["error"] = error
+    return state
+
+
+def _base_phase_succeeded(store: StateStore, base_run_id: str, phase_name: str) -> bool:
+    row = store.fetch_one(
+        """
+        select 1 from phase_runs
+        where run_id = ? and phase_name = ? and status = 'succeeded'
+        limit 1
+        """,
+        (base_run_id, phase_name),
+    )
+    return row is not None
+
+
+def _validate_predecessor_artifacts(
+    phase_name: str,
+    scratchpad: str | Path,
+) -> list[str]:
+    artifacts = check_artifacts(
+        scratchpad,
+        expected_phase_artifacts(phase_name, "sc"),
+    )
+    issues = [
+        f"missing {phase_name} artifacts: {name}"
+        for name in artifacts["missing"]
+    ]
+    issues.extend(
+        validate_phase_artifacts(
+            phase_name,
+            scratchpad,
+            artifacts["records"],
+        )
+    )
+    return _dedupe_issues(issues)
+
+
+def _validate_single_node_prerequisites(
+    config: AuditConfig,
+    phase_name: str,
+    base_run_id: str | None,
+) -> tuple[list[str], list[str]]:
+    predecessors = _predecessors_for(phase_name)
+    if not predecessors:
+        return [], []
+    if not base_run_id:
+        return predecessors, [f"{phase_name} single-node mode requires --base-run-id"]
+
+    store = StateStore(config.db_path)
+    store.init_db()
+    base_run = store.fetch_one("select * from runs where id = ?", (base_run_id,))
+    if not base_run:
+        return predecessors, [f"base run not found: {base_run_id}"]
+    issues: list[str] = []
+    if not _same_resolved_path(str(base_run["project_root"]), config.project_root):
+        issues.append("base run project_root does not match this config")
+    if not _same_resolved_path(str(base_run["scratchpad"]), config.scratchpad):
+        issues.append("base run scratchpad does not match this config")
+
+    for predecessor in predecessors:
+        if not _base_phase_succeeded(store, base_run_id, predecessor):
+            issues.append(f"base run lacks successful {predecessor} phase")
+
+    for predecessor in predecessors:
+        issues.extend(_validate_predecessor_artifacts(predecessor, config.scratchpad))
+
+    return predecessors, _dedupe_issues(issues)
+
+
+def run_phase_node(
+    config: AuditConfig,
+    phase_name: str,
+    base_run_id: str | None = None,
+    runner: Any | None = None,
+) -> AuditState:
+    if phase_name not in SUPPORTED_TARGET_PHASES:
+        raise ValueError(f"unsupported target phase: {phase_name}")
+
+    scratchpad = Path(config.scratchpad)
+    scratchpad.mkdir(parents=True, exist_ok=True)
+    with _run_lock(scratchpad):
+        predecessors, prerequisite_issues = _validate_single_node_prerequisites(
+            config,
+            phase_name,
+            base_run_id,
+        )
+        if prerequisite_issues:
+            return _failed_single_node_state(
+                config,
+                phase_name,
+                base_run_id,
+                "; ".join(prerequisite_issues),
+            )
+
+        store = StateStore(config.db_path)
+        store.init_db()
+        state = initial_state(
+            config,
+            target_phase=phase_name,
+            base_run_id=base_run_id,
+            execution_mode="single_node",
+            completed_phases=predecessors,
+        )
+        if predecessors:
+            state["status"] = "succeeded"
+        store.create_run(
+            state["run_id"],
+            config.project_root,
+            config.scratchpad,
+            phase_name,
+            "pending",
+            base_run_id=base_run_id,
+            execution_mode="single_node",
+        )
+        active_runner = runner or CodexRunner(config.codex_bin)
+        return _make_phase_node(
+            phase_name,
+            active_runner,
+            config.timeout_s,
+        )(state)

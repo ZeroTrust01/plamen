@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 
+BREADTH_MIN_BYTES = 200
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as f:
@@ -98,6 +101,29 @@ def _is_breadth_output(filename: str) -> bool:
     if any(name.startswith(prefix) for prefix in reserved_prefixes):
         return False
     return bool(re.fullmatch(r"analysis_[A-Za-z0-9][A-Za-z0-9_.-]*\.md", name))
+
+
+def _is_forbidden_breadth_output(filename: str) -> bool:
+    name = Path(_strip_markdown(filename)).name
+    if not name.endswith(".md"):
+        return False
+    forbidden_prefixes = (
+        "analysis_rescan_",
+        "analysis_percontract_",
+        "analysis_merged_into_",
+        "analysis_report_",
+        "findings_inventory",
+        "inventory",
+        "depth_",
+        "chain_",
+        "verify_",
+        "verification_",
+        "score",
+        "report_",
+    )
+    return name == "AUDIT_REPORT.md" or any(
+        name.startswith(prefix) for prefix in forbidden_prefixes
+    )
 
 
 def _slug_to_analysis_filename(value: str) -> str | None:
@@ -254,6 +280,67 @@ def validate_spawn_manifest_schema(scratchpad: str | Path) -> list[str]:
     return issues
 
 
+def parse_breadth_outputs(scratchpad: str | Path) -> list[str]:
+    """Return manifest-derived first-pass breadth output filenames.
+
+    This intentionally mirrors the legacy parser's accepted table shape while
+    keeping LangGraph Phase 3 independent of legacy driver state.
+    """
+    path = Path(scratchpad) / "spawn_manifest.md"
+    if not path.exists():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+
+    parsed = _first_spawn_table(text)
+    if parsed is None:
+        return []
+
+    _headers, rows = parsed
+    outputs: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        required = row.get("required") or row.get("required_") or row.get("required?")
+        if required and _is_no_required(required):
+            continue
+        if not _row_is_spawned_agent(row):
+            continue
+        output = _row_output_filename(row)
+        if not output or not _is_breadth_output(output):
+            continue
+        if output in seen:
+            continue
+        seen.add(output)
+        outputs.append(output)
+    return outputs
+
+
+def expected_breadth_artifacts(scratchpad: str | Path) -> list[str]:
+    return parse_breadth_outputs(scratchpad)
+
+
+def breadth_open_outputs(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    return [
+        name
+        for name in expected_breadth_artifacts(root)
+        if not (root / name).is_file() or (root / name).stat().st_size < BREADTH_MIN_BYTES
+    ]
+
+
+def forbidden_breadth_artifacts(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    if not root.exists():
+        return []
+    return sorted(
+        path.name
+        for path in root.glob("*.md")
+        if path.is_file() and _is_forbidden_breadth_output(path.name)
+    )
+
+
 def validate_phase_artifacts(
     phase_name: str,
     scratchpad: str | Path,
@@ -264,4 +351,31 @@ def validate_phase_artifacts(
         return []
     if phase_name == "instantiate":
         return validate_spawn_manifest_schema(scratchpad)
+    if phase_name == "breadth":
+        root = Path(scratchpad)
+        issues = validate_spawn_manifest_schema(root)
+        expected = expected_breadth_artifacts(root)
+        if not expected:
+            issues.append(
+                "spawn_manifest.md schema invalid: zero manifest-derived breadth outputs"
+            )
+        for name in expected:
+            if _is_forbidden_breadth_output(name):
+                issues.append(f"forbidden breadth output family in manifest: {name}")
+                continue
+            path = root / name
+            if not path.exists():
+                issues.append(f"missing breadth artifact: {name}")
+            elif path.stat().st_size < BREADTH_MIN_BYTES:
+                issues.append(
+                    f"stub breadth artifact: {name} "
+                    f"(<{BREADTH_MIN_BYTES} bytes)"
+                )
+        forbidden = forbidden_breadth_artifacts(root)
+        if forbidden:
+            issues.append(
+                "breadth phase wrote forbidden later-phase artifact(s): "
+                + ", ".join(forbidden[:12])
+            )
+        return issues
     raise ValueError(f"unsupported LangGraph phase: {phase_name}")
