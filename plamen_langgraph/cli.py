@@ -47,12 +47,15 @@ def _build_parser() -> argparse.ArgumentParser:
         command.add_argument(
             "--single-node",
             action="store_true",
-            help="Run only the requested phase after explicit predecessor validation.",
+            help="Run only the requested phase after predecessor validation.",
         )
         command.add_argument(
             "--base-run-id",
             default=None,
-            help="Successful predecessor run id required for single-node tail phases.",
+            help=(
+                "Optional predecessor run id for single-node mode. Defaults to "
+                "the latest successful direct predecessor in the state DB."
+            ),
         )
 
     recon = sub.add_parser("recon", help="Run the Phase-1 recon graph.")
@@ -106,12 +109,6 @@ def main(argv: list[str] | None = None) -> int:
         from .plamen_lg.graph import run_graph, run_phase_node
 
     if args.single_node:
-        if args.command in {"instantiate", "breadth", "rescan"} and not args.base_run_id:
-            print(
-                f"error: {args.command} --single-node requires --base-run-id",
-                file=sys.stderr,
-            )
-            return 2
         state = run_phase_node(
             config,
             phase_name=args.command,

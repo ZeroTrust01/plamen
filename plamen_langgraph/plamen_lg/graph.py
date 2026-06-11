@@ -76,6 +76,11 @@ def _predecessors_for(phase_name: str) -> list[str]:
     raise ValueError(f"unsupported target phase: {phase_name}")
 
 
+def _direct_predecessor_for(phase_name: str) -> str | None:
+    predecessors = _predecessors_for(phase_name)
+    return predecessors[-1] if predecessors else None
+
+
 def _mode_gate_error(phase_name: str, mode: str) -> str | None:
     del phase_name, mode
     return None
@@ -488,6 +493,50 @@ def _base_phase_succeeded(store: StateStore, base_run_id: str, phase_name: str) 
     return row is not None
 
 
+def _phase_succeeded_in_run_chain(
+    store: StateStore,
+    base_run_id: str,
+    phase_name: str,
+) -> bool:
+    current: str | None = base_run_id
+    seen: set[str] = set()
+    while current:
+        if current in seen:
+            return False
+        seen.add(current)
+        if _base_phase_succeeded(store, current, phase_name):
+            return True
+        row = store.fetch_one("select base_run_id from runs where id = ?", (current,))
+        current = str(row["base_run_id"]) if row and row.get("base_run_id") else None
+    return False
+
+
+def _latest_successful_phase_run_id(
+    store: StateStore,
+    config: AuditConfig,
+    phase_name: str,
+) -> str | None:
+    rows = store.fetch_all(
+        """
+        select r.id, r.project_root, r.scratchpad
+        from runs r
+        join phase_runs p on p.run_id = r.id
+        where p.phase_name = ?
+          and p.status = 'succeeded'
+          and r.status = 'succeeded'
+        order by coalesce(p.finished_at, r.updated_at, r.created_at) desc
+        """,
+        (phase_name,),
+    )
+    for row in rows:
+        if not _same_resolved_path(str(row["project_root"]), config.project_root):
+            continue
+        if not _same_resolved_path(str(row["scratchpad"]), config.scratchpad):
+            continue
+        return str(row["id"])
+    return None
+
+
 def _validate_predecessor_artifacts(
     phase_name: str,
     scratchpad: str | Path,
@@ -514,18 +563,32 @@ def _validate_single_node_prerequisites(
     config: AuditConfig,
     phase_name: str,
     base_run_id: str | None,
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], str | None, list[str]]:
     predecessors = _predecessors_for(phase_name)
     if not predecessors:
-        return [], []
-    if not base_run_id:
-        return predecessors, [f"{phase_name} single-node mode requires --base-run-id"]
+        return [], None, []
 
     store = StateStore(config.db_path)
     store.init_db()
-    base_run = store.fetch_one("select * from runs where id = ?", (base_run_id,))
+    resolved_base_run_id = base_run_id
+    if not resolved_base_run_id:
+        direct_predecessor = _direct_predecessor_for(phase_name)
+        if direct_predecessor:
+            resolved_base_run_id = _latest_successful_phase_run_id(
+                store,
+                config,
+                direct_predecessor,
+            )
+        if not resolved_base_run_id:
+            return (
+                predecessors,
+                None,
+                [f"no successful {direct_predecessor} run found for {phase_name} single-node mode"],
+            )
+
+    base_run = store.fetch_one("select * from runs where id = ?", (resolved_base_run_id,))
     if not base_run:
-        return predecessors, [f"base run not found: {base_run_id}"]
+        return predecessors, resolved_base_run_id, [f"base run not found: {resolved_base_run_id}"]
     issues: list[str] = []
     if not _same_resolved_path(str(base_run["project_root"]), config.project_root):
         issues.append("base run project_root does not match this config")
@@ -533,8 +596,8 @@ def _validate_single_node_prerequisites(
         issues.append("base run scratchpad does not match this config")
 
     for predecessor in predecessors:
-        if not _base_phase_succeeded(store, base_run_id, predecessor):
-            issues.append(f"base run lacks successful {predecessor} phase")
+        if not _phase_succeeded_in_run_chain(store, resolved_base_run_id, predecessor):
+            issues.append(f"base run chain lacks successful {predecessor} phase")
 
     for predecessor in predecessors:
         if phase_name == "rescan" and predecessor == "breadth":
@@ -542,7 +605,7 @@ def _validate_single_node_prerequisites(
         else:
             issues.extend(_validate_predecessor_artifacts(predecessor, config.scratchpad))
 
-    return predecessors, _dedupe_issues(issues)
+    return predecessors, resolved_base_run_id, _dedupe_issues(issues)
 
 
 def run_phase_node(
@@ -560,7 +623,7 @@ def run_phase_node(
     scratchpad = Path(config.scratchpad)
     scratchpad.mkdir(parents=True, exist_ok=True)
     with _run_lock(scratchpad):
-        predecessors, prerequisite_issues = _validate_single_node_prerequisites(
+        predecessors, resolved_base_run_id, prerequisite_issues = _validate_single_node_prerequisites(
             config,
             phase_name,
             base_run_id,
@@ -569,7 +632,7 @@ def run_phase_node(
             return _failed_single_node_state(
                 config,
                 phase_name,
-                base_run_id,
+                resolved_base_run_id or base_run_id,
                 "; ".join(prerequisite_issues),
             )
 
@@ -578,7 +641,7 @@ def run_phase_node(
         state = initial_state(
             config,
             target_phase=phase_name,
-            base_run_id=base_run_id,
+            base_run_id=resolved_base_run_id,
             execution_mode="single_node",
             completed_phases=predecessors,
         )
@@ -590,7 +653,7 @@ def run_phase_node(
             config.scratchpad,
             phase_name,
             "pending",
-            base_run_id=base_run_id,
+            base_run_id=resolved_base_run_id,
             execution_mode="single_node",
         )
         active_runner = runner or CodexRunner(config.codex_bin)

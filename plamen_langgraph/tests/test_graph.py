@@ -148,7 +148,13 @@ def write_breadth_artifacts(scratch) -> None:
         )
 
 
-def seed_base_run(config, run_id: str, phases: list[str]) -> None:
+def seed_base_run(
+    config,
+    run_id: str,
+    phases: list[str],
+    base_run_id: str | None = None,
+    execution_mode: str = "prefix",
+) -> None:
     scratch = config.scratchpad
     store = StateStore(config.db_path)
     store.init_db()
@@ -158,6 +164,8 @@ def seed_base_run(config, run_id: str, phases: list[str]) -> None:
         scratch,
         phases[-1] if phases else "recon",
         "succeeded",
+        base_run_id=base_run_id,
+        execution_mode=execution_mode,
     )
     for phase in phases:
         phase_run_id = f"{run_id}:{phase}"
@@ -475,6 +483,37 @@ def test_single_node_breadth_uses_successful_base_run(tmp_path):
     assert phases == [{"phase_name": "breadth"}]
 
 
+def test_single_node_breadth_infers_latest_successful_instantiate_run(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project)
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    seed_base_run(config, "instantiate-run", ["recon", "instantiate"])
+    runner = FakeRunner(write_artifacts=False, write_instantiate_artifact=False)
+
+    state = run_phase_node(config, "breadth", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["execution_mode"] == "single_node"
+    assert state["base_run_id"] == "instantiate-run"
+    assert [call["phase"] for call in runner.calls] == ["breadth"]
+
+    store = StateStore(config.db_path)
+    run = store.fetch_one(
+        "select phase, execution_mode, base_run_id, status from runs where id = ?",
+        (state["run_id"],),
+    )
+
+    assert run == {
+        "phase": "breadth",
+        "execution_mode": "single_node",
+        "base_run_id": "instantiate-run",
+        "status": "succeeded",
+    }
+
+
 def test_single_node_instantiate_uses_successful_recon_base_run(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
@@ -677,6 +716,45 @@ def test_single_node_rescan_uses_successful_breadth_base_run(tmp_path):
         "status": "succeeded",
     }
     assert phases == [{"phase_name": "rescan"}]
+
+
+def test_single_node_rescan_infers_latest_successful_breadth_run_chain(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    seed_base_run(config, "instantiate-run", ["recon", "instantiate"])
+    seed_base_run(
+        config,
+        "breadth-run",
+        ["breadth"],
+        base_run_id="instantiate-run",
+        execution_mode="single_node",
+    )
+    runner = FakeRunner(write_artifacts=False, write_instantiate_artifact=False)
+
+    state = run_phase_node(config, "rescan", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["execution_mode"] == "single_node"
+    assert state["base_run_id"] == "breadth-run"
+    assert [call["phase"] for call in runner.calls] == ["rescan"]
+
+    store = StateStore(config.db_path)
+    run = store.fetch_one(
+        "select phase, execution_mode, base_run_id, status from runs where id = ?",
+        (state["run_id"],),
+    )
+
+    assert run == {
+        "phase": "rescan",
+        "execution_mode": "single_node",
+        "base_run_id": "breadth-run",
+        "status": "succeeded",
+    }
 
 
 def test_single_node_rescan_requires_successful_breadth_and_artifacts(tmp_path):

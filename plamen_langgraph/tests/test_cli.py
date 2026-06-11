@@ -134,3 +134,20 @@ def test_single_node_cli_options_preserve_target_phase(tmp_path):
     assert args.command == "breadth"
     assert args.single_node is True
     assert args.base_run_id == "run-123"
+
+
+def test_single_node_cli_allows_omitted_base_run_id(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    args = _build_parser().parse_args(
+        [
+            "rescan",
+            str(project),
+            "--single-node",
+        ]
+    )
+
+    assert args.command == "rescan"
+    assert args.single_node is True
+    assert args.base_run_id is None

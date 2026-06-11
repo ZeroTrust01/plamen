@@ -26,18 +26,19 @@ python -m plamen_langgraph.cli rescan /path/to/project
 first. If an upstream phase fails, downstream phases do not call Codex and do
 not create phase rows.
 
-For explicit failed-tail recovery, single-node mode validates a referenced
-base run before running only the requested node:
+For failed-tail recovery, single-node mode infers the latest successful direct
+predecessor from the LangGraph state DB before running only the requested node:
 
 ```bash
 python -m plamen_langgraph.cli breadth /path/to/project \
-  --single-node \
-  --base-run-id <successful-instantiate-run-id>
+  --single-node
 
 python -m plamen_langgraph.cli rescan /path/to/project \
-  --single-node \
-  --base-run-id <successful-breadth-run-id>
+  --single-node
 ```
+
+Pass `--base-run-id <run-id>` only when you need to override the inferred
+predecessor run.
 
 Useful options:
 
