@@ -320,8 +320,14 @@ After all required artifacts are written, return exactly one concise summary:
 
 
 def build_instantiate_prompt(config: dict[str, Any]) -> str:
+    """Build a direct-execution prompt for the LangGraph instantiate worker.
+
+    The instantiate worker only translates recon artifacts into the
+    `spawn_manifest.md` breadth contract. It must not inherit legacy
+    orchestrator prompt behavior, compose subagent prompts, or load skill files.
+    """
     phase = get_phase("instantiate", str(config.get("pipeline", "sc")))
-    methodology = _read_phase2_methodology()
+    methodology = _read_phase2_methodology().strip()
     project_root = _none_if_blank(config.get("project_root"))
     scratchpad = _none_if_blank(config.get("scratchpad"))
     db_path = _none_if_blank(config.get("db_path"))
@@ -335,8 +341,8 @@ def build_instantiate_prompt(config: dict[str, Any]) -> str:
 
 You are running only the `instantiate` phase of Plamen's smart-contract audit
 pipeline. This prompt is generated directly by `plamen_langgraph`; use the
-Phase 2 methodology below only to produce the spawn manifest contract for the
-next phase.
+manifest planning procedure below only to produce the `spawn_manifest.md`
+contract consumed by the breadth phase.
 
 ## Configuration
 
@@ -351,29 +357,29 @@ next phase.
 
 1. Execute instantiate only. Do not run breadth, inventory, depth,
    verification, scoring, report, or any later phase.
-2. Do not spawn subagents. This worker plans breadth agents by writing
-   `spawn_manifest.md`; it must not call Task, launch agents, or create
-   breadth outputs.
+2. Do not call Task, launch subagents, or create breadth outputs.
 3. Read recon artifacts from the scratchpad as inputs. Required recon inputs:
 {required_recon}
-4. Write only the required Phase 2 output and optional `_lg_` debug notes under
+4. Do not load external prompt files, agent definitions, skill files, MCP
+   servers, network sources, legacy checkpoints, or installation-local paths.
+5. Write only the required Phase 2 output and optional `_lg_` debug notes under
    the scratchpad.
-5. Required Phase 2 outputs:
+6. Required Phase 2 outputs:
 {required_outputs}
-6. Do not edit target source files, dependency manifests, git metadata, legacy
+7. Do not edit target source files, dependency manifests, git metadata, legacy
    `.scratchpad`, or `_v2_checkpoint.json`.
 
 ## Output Contract
 
 `spawn_manifest.md` must be a machine-readable Markdown contract. The first
 Markdown table containing both `Template` and `Required?` columns must be the
-spawned breadth-agent AGENT table. Every spawned `AGENT` row needs a unique
-agent identifier and a distinct first-pass `analysis_*.md` expected output.
+breadth-agent AGENT table. Every `AGENT` row needs a unique agent identifier
+and a distinct first-pass `analysis_*.md` expected output.
 Do not include `verify_*.md`, `analysis_rescan_*.md`,
 `analysis_percontract_*.md`, `analysis_merged_into_*.md`, inventory, depth,
 chain, verification, scoring, or report artifacts in the AGENT table.
 
-## Methodology Body
+## Manifest Planning Procedure
 
 {methodology}
 

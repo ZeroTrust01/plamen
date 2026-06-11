@@ -1,173 +1,123 @@
-# Phase 2: Orchestrator Instantiation
+# Phase 2: Manifest Instantiation
 
-> **Loaded by**: The V2 driver's Phase 2 subprocess (instantiation).
-> **Purpose**: Determine agent count, apply merge hierarchy, instantiate templates,
-> load injectable skills, enforce merge cap, append MCP timeout directive, and
-> verify spawn readiness. Self-contained methodology for the instantiation phase.
-
----
-
-## Step 2a: Determine Agent Count
-
-| Condition | Agent Count |
-|-----------|-------------|
-| Simple (<5 deps, <2000 lines) | 3 agents |
-| Medium (5-10 deps, 2000-5000 lines) | 5-7 agents |
-| Complex (>10 deps or >5000 lines) | 7-9 agents |
-
-**Minimum always**: 1 core state, 1 access control, 1 per major external dep (overrides Simple tier if needed)
-
-**Breadth-to-depth redirect**: When actual breadth agent count is below the Medium baseline (5), the saved slots increase the depth budget floor: `depth_floor = 12 + (5 - actual_breadth_count)`.
+> **Loaded by**: `plamen_langgraph` direct-execution instantiate worker.
+> **Purpose**: Convert Phase 1 recon artifacts into the `spawn_manifest.md`
+> contract consumed by the breadth phase.
 
 ---
 
-## Step 2a.1: Merge Hierarchy (when required templates exceed target count)
+## Step 2a: Read Recon Inputs
 
-| Priority | Merge | Rationale |
-|----------|-------|-----------|
-| M1 | TEMPORAL_PARAMETER_STALENESS + core state agent | Cached params are state mutations |
-| M2 | SEMI_TRUSTED_ROLES + access control agent | Roles are access control |
-| M3 | SHARE_ALLOCATION_FAIRNESS + core state agent | Allocation fairness is state correctness |
-| M4 | ECONOMIC_DESIGN_AUDIT + core state agent | Monetary params are state correctness |
-| M5 | EXTERNAL_PRECONDITION_AUDIT + external dependency agent | External preconditions are external dep analysis |
+Use the scratchpad recon artifacts as the only planning source. The primary
+input is `template_recommendations.md`; use the remaining recon artifacts only
+to clarify names, risk themes, affected contracts, and limitations.
 
-**Rules**: Never merge two skills both requiring >5 analysis steps. Never merge across incompatible domains. **Never merge FLASH_LOAN_INTERACTION or ORACLE_ANALYSIS with any other skill.** **Max 2 templates per agent (including injectables) AND max 300 combined SKILL.md lines.** If a 2-template merge would exceed 300 lines, split into an additional breadth agent instead. Narrower scope per agent improves depth — agents reliably execute ~300 lines of skill payload but degrade on larger prompts (validated by multi-agent audit research: LLMBugScanner, iAudit).
+Do not load external prompt files, agent definitions, skill files, MCP servers,
+network sources, or legacy checkpoints. Phase 2 plans manifest rows only; it
+does not instantiate worker prompts.
 
 ---
 
-## Step 2a.2: Move-Safety Agent (Aptos/Sui only)
+## Step 2b: Derive Breadth Lanes
 
-For Aptos and Sui audits, the 4 always-required skills (ABILITY_ANALYSIS, BIT_SHIFT_SAFETY, TYPE_SAFETY, REF_LIFECYCLE/OBJECT_OWNERSHIP) total ~900-950 lines — far exceeding the 300-line breadth agent cap. These are split into two delivery layers:
+Extract candidate breadth lanes from `template_recommendations.md`:
 
-1. **Core directives** (~130 lines): Loaded into EVERY breadth agent via `~/.codex/plamen/agents/skills/{LANGUAGE}/move-safety-core-directives/SKILL.md`. Contains inventory greps + flag tables. Counts toward the 300-line cap but leaves ~170 lines for conditional skills.
-2. **Move-Safety Agent** (1 dedicated agent): Spawned in Phase 3 alongside breadth agents. Loads ALL 4 full skill files (~950 lines). Runs the complete trace methodology that breadth agents cannot fit. Costs 1 breadth agent slot.
+1. Prefer rows under `## Recommended Analysis Lanes`.
+2. If that table is incomplete, use the `## Binding Manifest` template keys.
+3. Treat a lane as required when it is marked `Required? = YES`,
+   `Required = YES`, or when no required/optional marker is present.
+4. Skip only lanes explicitly marked `NO`, `OPTIONAL`, `SKIP`, or `MERGED`.
+5. Preserve project-specific lane names. They are analysis lanes, not paths to
+   external templates.
 
-The Move-Safety Agent prompt: load all 4 always-required SKILLs into a single agent with scope = "full Move-specific safety analysis." It is a breadth producer and MUST write exactly one first-pass analysis file, `analysis_move_safety.md`. Its findings feed into `findings_inventory.md` because inventory reads `analysis_*.md`; it must not write `findings_inventory.md` directly. Depth agents still receive full skills per their injection rules (depth agents have separate context windows, not subject to the breadth merge cap).
+If no lanes can be parsed, create a minimal manifest with:
 
-**EVM/Solana**: No Move-Safety Agent needed. EVM has no always-required skills. Solana has ACCOUNT_VALIDATION (130 lines) which fits within the 300-line cap.
+- `CORE_STATE`
+- `ACCESS_CONTROL`
+- one `EXTERNAL_DEPENDENCY` lane when recon identifies external dependencies
 
----
-
-## Step 2b: Instantiate Templates
-
-For each template marked `Required? = YES` in `template_recommendations.md`:
-1. Read template from `~/.codex/plamen/agents/skills/{LANGUAGE}/{template-name}/SKILL.md` (folder name is lowercase-hyphenated version of the template name, e.g., ORACLE_ANALYSIS -> oracle-analysis)
-2. For Aptos/Sui breadth agents: load `move-safety-core-directives/SKILL.md` instead of the 4 individual always-required skills. The full skills go to the Move-Safety Agent only.
-3. Replace `{PLACEHOLDERS}` with instantiation parameters
-4. **Conditional loading**: Strip sections wrapped in `<!-- LOAD_IF: FLAG -->...<!-- END_LOAD_IF: FLAG -->` when the flag was NOT detected
-5. Compose agent prompt with instantiated template
+Record this fallback in the manifest notes.
 
 ---
 
-## Step 2b.1: Load Injectable Skills (Append-Only Delivery)
+## Step 2c: Choose Agent Rows
 
-1. Read protocol type from `{scratchpad}/template_recommendations.md` -> `## Injectable Skills`
-2. For each recommended injectable: Read from `~/.codex/plamen/agents/skills/injectable/{skill-name}/SKILL.md`
-3. **Breadth agents**: Extract ONLY section headers + key questions (1-line per section, ~200 tokens max)
-4. **Depth agents (Phase 4b)**: Append the relevant skill methodology to the existing assigned depth-agent prompt.
-5. Injectable skills do NOT spawn dedicated agents. The spawn manifest must record which existing agent received each injectable skill.
+Prefer one breadth agent per distinct required lane. Do not force the run into a
+fixed target count when recon identified more distinct lanes; coverage is more
+important than matching an advisory range.
 
----
+Use these advisory ranges only for the notes section:
 
-## Step 2b.2: Merge Cap Enforcement Gate (MANDATORY)
+| Project shape | Advisory breadth rows |
+|---------------|-----------------------|
+| Simple (<5 deps, <2000 lines) | 3 |
+| Medium (5-10 deps, 2000-5000 lines) | 5-7 |
+| Complex (>10 deps or >5000 lines) | 7-9 |
 
-**BEFORE composing any agent prompt**, the orchestrator MUST verify the 300-line cap mechanically:
-
-```
-For each planned breadth agent:
-  combined_lines = 0
-  For each SKILL.md assigned to this agent:
-    line_count = wc -l ~/.codex/plamen/agents/skills/{LANGUAGE}/{skill-name}/SKILL.md
-    combined_lines += line_count
-  ASSERT: combined_lines <= 300
-  If FAIL:
-    Log: "MERGE CAP VIOLATED: Agent {N} has {combined_lines} lines ({skill_list}). Splitting."
-    Split the largest skill into its own dedicated agent.
-    Re-run this gate.
-```
-
-**This is a mechanical check — run `wc -l` on actual files, do not estimate.** The 300-line cap was validated by multi-agent audit research (LLMBugScanner, iAudit): agents reliably execute ~300 lines of skill payload but degrade on larger prompts. Violations of this cap directly cause RC-AGENT misses where methodology exists but agents don't execute it.
-
-**Soroban note**: Soroban skills average 30% larger than Solana equivalents. Merges that fit at Solana sizes often exceed 300 lines at Soroban sizes. Always check — never assume a merge that works for one language works for another.
+Merge lanes only when they are clear duplicates or when one row is explicitly
+marked as merged into another. Never merge lanes merely because the advisory
+range is lower than the required lane count.
 
 ---
 
-## Step 2c: Agent Prompt Structure
+## Step 2d: Name Outputs
 
-```
-You are Analysis Agent #{N}: {FOCUS_AREA}
+For each AGENT row:
 
-## Protocol Context
-{Brief from design_context.md}
+1. Assign a stable unique agent id: `B1`, `B2`, `B3`, ...
+2. Convert the lane name to a lowercase underscore focus area.
+3. Set expected output to `analysis_<focus_area>.md`.
+4. Keep expected outputs unique and first-pass breadth-only.
 
-## Your Analysis Task
-{INSTANTIATED_TEMPLATE}
+Examples:
 
-## Analysis Strategy — Targeted Sweeps
-Do NOT attempt to find all vulnerability types in a single pass.
-Instead, for each vulnerability class in your methodology:
-1. Sweep the ENTIRE scope for THIS class specifically
-2. Write findings for this class before moving on
-3. Proceed to the next vulnerability class
-
-## Artifacts Available
-{list scratchpad files}
-
-## Output Requirements
-Write to {SCRATCHPAD}/analysis_{focus_area}.md
-Use finding IDs: [{PREFIX}-1], [{PREFIX}-2]...
-
-SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agents' output files. Do NOT proceed to subsequent pipeline phases (re-scan, per-contract, inventory, semantic invariants, depth, RAG, chain analysis, verification, report). Return your findings and stop.
-```
+- `ACCESS_CONTROL_ROLE_GRAPH` -> `analysis_access_control_role_graph.md`
+- `ORACLE_STALENESS_DEVIATION_DECIMALS` ->
+  `analysis_oracle_staleness_deviation_decimals.md`
 
 ---
 
-## Step 2c.1: MCP Timeout Directive (MANDATORY — Rule 11)
+## Step 2e: Write The Manifest
 
-Every agent prompt that makes MCP tool calls (recon agents, depth agents, chain agents, verifiers, RAG sweep) MUST include this directive at the end of its prompt:
+Write `{scratchpad}/spawn_manifest.md` with this structure:
 
-*"When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record [MCP: TIMEOUT] and skip ALL remaining calls to that provider — switch immediately to fallback (code analysis, grep, WebSearch). Codex CLI's tool timeout is set to 300s (5 min) via MCP_TOOL_TIMEOUT in settings.json to accommodate ChromaDB cold start. You cannot cancel a pending call — but you control what happens after the error returns."*
-
-The orchestrator MUST append this text when composing prompts for MCP-calling agents. Agents that do not make MCP calls (pure code analysis breadth agents, report writers) do not need it.
-
----
-
-## Step 2d: Spawn Verification Gate (MANDATORY)
-
-**BEFORE spawning agents**:
-1. Read BINDING MANIFEST from `{scratchpad}/template_recommendations.md`
-2. Verify agent queued for EACH template marked `Required? = YES` or `Required = YES` (plain or Markdown-decorated YES is accepted on input)
-3. If ANY required template missing -> **HALT and add**
-
-**Write spawn manifest** to `{scratchpad}/spawn_manifest.md`:
 ```markdown
 # Spawn Manifest
+
 ## Breadth Agents
+
 | Row Type | Template | Required? | Agent ID | Focus Area | Expected Output | Status |
 |----------|----------|-----------|----------|------------|-----------------|--------|
 | AGENT | CORE_STATE | YES | B1 | core_state | analysis_core_state.md | QUEUED |
-**Gate Check**: All REQUIRED templates have agents? [YES/NO]
+
+**Gate Check**: All REQUIRED templates have agents? YES
 ```
 
-`spawn_manifest.md` is a machine-read contract, not narrative notes.
-Rules:
+`spawn_manifest.md` is a machine-read contract, not narrative notes. Rules:
+
 - The first markdown table in the file with both `Template` and `Required?`
-  columns MUST be the spawned breadth-agent AGENT table shown above.
-- Put spawned breadth agents only in rows with `Row Type = AGENT`.
+  columns MUST be the breadth-agent AGENT table shown above.
+- Put breadth agents only in rows with `Row Type = AGENT`.
 - Every `AGENT` row MUST have `Required? = YES`, a unique `Agent ID`, a
   non-empty `Focus Area`, and an `Expected Output` filename matching
   `analysis_<focus>.md`.
-- Optional templates marked `NO` are not spawned and must not appear as AGENT
-  rows. If an optional template is intentionally folded into a spawned agent,
-  record it under `## Skill Bindings`, not the AGENT table.
 - Do NOT put `verify_*.md`, `analysis_rescan_*.md`,
-  `analysis_percontract_*.md`, `analysis_merged_into_*.md`, inventory,
-  depth, chain, verification, or report artifacts in the AGENT table.
-- Record skill/injectable bindings in a separate section titled
-  `## Skill Bindings`; those rows are not spawned agents and must not be
-  mixed into the machine-read AGENT table.
-- Before returning, re-read the manifest and confirm the number of AGENT
-  rows equals the number of first-pass breadth output files the breadth phase
-  must produce.
+  `analysis_percontract_*.md`, `analysis_merged_into_*.md`, inventory, depth,
+  chain, verification, scoring, or report artifacts in the AGENT table.
+- Optional notes sections are allowed after the AGENT table, but they must not
+  introduce extra AGENT rows or later-phase artifacts.
 
-If the gate check is NO, do NOT proceed to Phase 3. Add the missing agent and re-verify.
+---
+
+## Step 2f: Self-Check
+
+Before returning:
+
+1. Re-read `spawn_manifest.md`.
+2. Confirm every required lane has exactly one AGENT row unless explicitly
+   merged in the source input.
+3. Confirm AGENT ids are unique.
+4. Confirm expected outputs are unique `analysis_*.md` files.
+5. Confirm no later-phase artifacts appear in the AGENT table.
+
+If any check fails, fix the manifest before returning.

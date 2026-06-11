@@ -60,7 +60,7 @@ def test_instantiate_phase_metadata_uses_canonical_sc_phase():
     assert expected_phase_artifacts("instantiate") == ["spawn_manifest.md"]
 
 
-def test_langgraph_instantiate_prompt_wraps_phase2_methodology(tmp_path):
+def test_langgraph_instantiate_prompt_uses_direct_manifest_methodology(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     config = build_config(project, language="evm").to_dict()
@@ -68,11 +68,18 @@ def test_langgraph_instantiate_prompt_wraps_phase2_methodology(tmp_path):
     prompt = build_instantiate_prompt(config)
 
     assert prompt.startswith("# Plamen LangGraph Instantiate Direct-Execution Prompt")
-    assert "Phase 2: Orchestrator Instantiation" in prompt
-    assert "## Step 2d: Spawn Verification Gate" in prompt
+    assert "Phase 2: Manifest Instantiation" in prompt
+    assert "## Step 2f: Self-Check" in prompt
     assert "`spawn_manifest.md` must be a machine-readable Markdown contract" in prompt
-    assert "Do not spawn subagents" in prompt
+    assert "Do not call Task, launch subagents, or create breadth outputs" in prompt
+    assert "Do not load external prompt files, agent definitions, skill files" in prompt
     assert "Task(subagent_type=" not in prompt
+    assert "V2 driver's Phase 2 subprocess" not in prompt
+    assert "BEFORE spawning agents" not in prompt
+    assert "SKILL.md" not in prompt
+    assert "~/.codex/plamen" not in prompt
+    assert "MCP Timeout Directive" not in prompt
+    assert "Skill Bindings" not in prompt
     assert "_v2_checkpoint.json" in prompt
 
 
