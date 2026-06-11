@@ -70,7 +70,7 @@ def build_config(
     if not root.is_dir():
         raise ValueError(f"project_root must be an existing directory: {root}")
     if pipeline != "sc":
-        raise ValueError("Phase 1 supports only the smart-contract pipeline: sc")
+        raise ValueError("LangGraph supports only the smart-contract pipeline: sc")
     if mode not in {"light", "core", "thorough"}:
         raise ValueError(f"invalid mode: {mode}")
     if language not in VALID_LANGUAGES:

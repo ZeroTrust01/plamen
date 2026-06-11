@@ -12,6 +12,8 @@ class AuditState(TypedDict):
     mode: str
     language: str
     current_phase: str
+    target_phase: str
+    completed_phases: list[str]
+    failed_phase: Optional[str]
     status: str
     error: Optional[str]
-

@@ -5,9 +5,9 @@ import os
 import uuid
 from typing import Any, Callable
 
-from .artifacts import check_artifacts
+from .artifacts import check_artifacts, validate_phase_artifacts
 from .config import AuditConfig
-from .phases import build_recon_prompt, expected_recon_artifacts
+from .phases import build_phase_prompt, expected_phase_artifacts
 from .runner import CodexRunner
 from .state import AuditState
 from .store import StateStore, utc_now
@@ -20,30 +20,54 @@ except ImportError:  # pragma: no cover - exercised only when dependency is abse
     StateGraph = None
 
 
-def _output_paths(scratchpad: str | Path) -> dict[str, Path]:
+SUPPORTED_TARGET_PHASES = {"recon", "instantiate"}
+
+
+def _output_paths(scratchpad: str | Path, phase_name: str) -> dict[str, Path]:
     sp = Path(scratchpad)
     return {
-        "prompt_path": sp / "_lg_recon_prompt.md",
-        "stdout_path": sp / "_lg_recon_stdout.log",
-        "stderr_path": sp / "_lg_recon_stderr.log",
-        "events_path": sp / "_lg_recon_events.jsonl",
-        "last_message_path": sp / "_lg_recon_last_message.md",
+        "prompt_path": sp / f"_lg_{phase_name}_prompt.md",
+        "stdout_path": sp / f"_lg_{phase_name}_stdout.log",
+        "stderr_path": sp / f"_lg_{phase_name}_stderr.log",
+        "events_path": sp / f"_lg_{phase_name}_events.jsonl",
+        "last_message_path": sp / f"_lg_{phase_name}_last_message.md",
     }
 
 
 class _SequentialGraph:
-    def __init__(self, node: Callable[[AuditState], AuditState]) -> None:
-        self._node = node
+    def __init__(self, nodes: list[Callable[[AuditState], AuditState]]) -> None:
+        self._nodes = nodes
 
     def invoke(self, state: AuditState) -> AuditState:
-        return self._node(state)
+        current = state
+        for node in self._nodes:
+            current = node(current)
+        return current
 
 
-def _make_recon_node(
+def _dedupe_issues(issues: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for issue in issues:
+        if issue in seen:
+            continue
+        seen.add(issue)
+        result.append(issue)
+    return result
+
+
+def _make_phase_node(
+    phase_name: str,
     runner: Any | None = None,
     timeout_s: int = 3000,
 ) -> Callable[[AuditState], AuditState]:
-    def recon_node(state: AuditState) -> AuditState:
+    def phase_node(state: AuditState) -> AuditState:
+        if phase_name == "instantiate" and (
+            state.get("status") != "succeeded"
+            or "recon" not in state.get("completed_phases", [])
+        ):
+            return state
+
         scratchpad = Path(state["scratchpad"])
         scratchpad.mkdir(parents=True, exist_ok=True)
 
@@ -51,13 +75,19 @@ def _make_recon_node(
         store.init_db()
         store.update_run_status(state["run_id"], "running")
 
-        phase_run_id = f"{state['run_id']}:recon"
+        phase_run_id = f"{state['run_id']}:{phase_name}"
         started_at = utc_now()
-        store.create_phase_run(phase_run_id, state["run_id"], "recon", "running", started_at)
+        store.create_phase_run(
+            phase_run_id,
+            state["run_id"],
+            phase_name,
+            "running",
+            started_at,
+        )
 
-        paths = _output_paths(scratchpad)
+        paths = _output_paths(scratchpad, phase_name)
         try:
-            prompt = build_recon_prompt(dict(state))
+            prompt = build_phase_prompt(phase_name, dict(state))
             paths["prompt_path"].write_text(prompt, encoding="utf-8")
 
             active_runner = runner or CodexRunner()
@@ -70,8 +100,20 @@ def _make_recon_node(
             )
             result_dict = result.to_dict() if hasattr(result, "to_dict") else dict(result)
 
-            artifacts = check_artifacts(scratchpad, expected_recon_artifacts())
-            store.record_artifacts(state["run_id"], "recon", artifacts["records"])
+            artifacts = check_artifacts(
+                scratchpad,
+                expected_phase_artifacts(phase_name, state["pipeline"]),
+            )
+            store.record_artifacts(state["run_id"], phase_name, artifacts["records"])
+            validation_issues = validate_phase_artifacts(
+                phase_name,
+                scratchpad,
+                artifacts["records"],
+            )
+            artifact_issues = _dedupe_issues(
+                [f"missing {phase_name} artifacts: {name}" for name in artifacts["missing"]]
+                + validation_issues
+            )
 
             timed_out = bool(result_dict.get("timed_out"))
             returncode = result_dict.get("returncode")
@@ -83,10 +125,10 @@ def _make_recon_node(
                 phase_status = "failed"
                 run_status = "failed"
                 error = error or f"codex exec returned {returncode}"
-            elif not artifacts["ok"]:
+            elif not artifacts["ok"] or artifact_issues:
                 phase_status = "failed"
                 run_status = "failed"
-                error = "missing recon artifacts: " + ", ".join(artifacts["missing"])
+                error = "; ".join(artifact_issues)
             else:
                 phase_status = "succeeded"
                 run_status = "succeeded"
@@ -106,8 +148,17 @@ def _make_recon_node(
             store.update_run_status(state["run_id"], run_status)
 
             next_state = dict(state)
+            next_state["current_phase"] = phase_name
             next_state["status"] = run_status
             next_state["error"] = error
+            if phase_status == "succeeded":
+                completed = list(next_state.get("completed_phases", []))
+                if phase_name not in completed:
+                    completed.append(phase_name)
+                next_state["completed_phases"] = completed
+                next_state["failed_phase"] = None
+            else:
+                next_state["failed_phase"] = phase_name
             return next_state  # type: ignore[return-value]
         except Exception as exc:
             error = str(exc)
@@ -119,26 +170,46 @@ def _make_recon_node(
             )
             store.update_run_status(state["run_id"], "failed")
             next_state = dict(state)
+            next_state["current_phase"] = phase_name
             next_state["status"] = "failed"
             next_state["error"] = error
+            next_state["failed_phase"] = phase_name
             return next_state  # type: ignore[return-value]
 
-    return recon_node
+    return phase_node
 
 
-def build_graph(runner: Any | None = None, timeout_s: int = 3000) -> Any:
-    recon_node = _make_recon_node(runner, timeout_s)
+def build_graph(
+    runner: Any | None = None,
+    timeout_s: int = 3000,
+    target_phase: str = "recon",
+) -> Any:
+    if target_phase not in SUPPORTED_TARGET_PHASES:
+        raise ValueError(f"unsupported target phase: {target_phase}")
+    recon_node = _make_phase_node("recon", runner, timeout_s)
+    nodes = [("recon", recon_node)]
+    if target_phase == "instantiate":
+        nodes.append(("instantiate", _make_phase_node("instantiate", runner, timeout_s)))
     if StateGraph is None:
-        return _SequentialGraph(recon_node)
+        return _SequentialGraph([node for _name, node in nodes])
 
     graph = StateGraph(AuditState)
-    graph.add_node("recon", recon_node)
+    for name, node in nodes:
+        graph.add_node(name, node)
     graph.add_edge(START, "recon")
-    graph.add_edge("recon", END)
+    if target_phase == "instantiate":
+        graph.add_edge("recon", "instantiate")
+        graph.add_edge("instantiate", END)
+    else:
+        graph.add_edge("recon", END)
     return graph.compile()
 
 
-def initial_state(config: AuditConfig, run_id: str | None = None) -> AuditState:
+def initial_state(
+    config: AuditConfig,
+    run_id: str | None = None,
+    target_phase: str = "recon",
+) -> AuditState:
     return {
         "run_id": run_id or str(uuid.uuid4()),
         "project_root": config.project_root,
@@ -148,12 +219,21 @@ def initial_state(config: AuditConfig, run_id: str | None = None) -> AuditState:
         "mode": config.mode,
         "language": config.language,
         "current_phase": "recon",
+        "target_phase": target_phase,
+        "completed_phases": [],
+        "failed_phase": None,
         "status": "pending",
         "error": None,
     }
 
 
-def run_recon_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
+def run_graph(
+    config: AuditConfig,
+    target_phase: str = "recon",
+    runner: Any | None = None,
+) -> AuditState:
+    if target_phase not in SUPPORTED_TARGET_PHASES:
+        raise ValueError(f"unsupported target phase: {target_phase}")
     scratchpad = Path(config.scratchpad)
     scratchpad.mkdir(parents=True, exist_ok=True)
     lock_path = scratchpad / "_lg_run.lock"
@@ -168,16 +248,20 @@ def run_recon_graph(config: AuditConfig, runner: Any | None = None) -> AuditStat
         store = StateStore(config.db_path)
         store.init_db()
 
-        state = initial_state(config)
+        state = initial_state(config, target_phase=target_phase)
         store.create_run(
             state["run_id"],
             config.project_root,
             config.scratchpad,
-            "recon",
+            target_phase,
             "pending",
         )
         active_runner = runner or CodexRunner(config.codex_bin)
-        return build_graph(active_runner, timeout_s=config.timeout_s).invoke(state)
+        return build_graph(
+            active_runner,
+            timeout_s=config.timeout_s,
+            target_phase=target_phase,
+        ).invoke(state)
     finally:
         if lock_fd is not None:
             os.close(lock_fd)
@@ -185,3 +269,11 @@ def run_recon_graph(config: AuditConfig, runner: Any | None = None) -> AuditStat
             lock_path.unlink()
         except FileNotFoundError:
             pass
+
+
+def run_recon_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
+    return run_graph(config, target_phase="recon", runner=runner)
+
+
+def run_instantiate_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
+    return run_graph(config, target_phase="instantiate", runner=runner)

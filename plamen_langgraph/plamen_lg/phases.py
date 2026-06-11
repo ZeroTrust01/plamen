@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import sys
+from pathlib import Path
 from typing import Any
 
 
@@ -26,6 +28,21 @@ class SimplePhase:
     expected_artifacts: list[str]
     base_timeout_s: int
     critical: bool = True
+
+
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[2]
+
+
+def _load_sc_phases() -> list[Any] | None:
+    scripts_dir = _repo_root() / "scripts"
+    if str(scripts_dir) not in sys.path:
+        sys.path.insert(0, str(scripts_dir))
+    try:
+        from plamen_types import SC_PHASES  # type: ignore
+    except Exception:
+        return None
+    return list(SC_PHASES)
 
 
 def _none_if_blank(value: Any) -> str:
@@ -106,6 +123,37 @@ def get_recon_phase(pipeline: str = "sc") -> Any:
         base_timeout_s=3000,
         critical=True,
     )
+
+
+def get_phase(name: str, pipeline: str = "sc") -> Any:
+    if pipeline != "sc":
+        raise ValueError("LangGraph Phase 2 supports only the smart-contract pipeline: sc")
+    phases = _load_sc_phases()
+    if phases:
+        for phase in phases:
+            if phase.name == name:
+                return phase
+
+    if name == "recon":
+        return get_recon_phase(pipeline)
+    if name == "instantiate":
+        return SimplePhase(
+            name="instantiate",
+            section_markers=["Phase 2: Orchestrator Instantiation"],
+            expected_artifacts=["spawn_manifest.md"],
+            base_timeout_s=600,
+            critical=True,
+        )
+    raise ValueError(f"unsupported LangGraph phase: {name}")
+
+
+def expected_phase_artifacts(name: str, pipeline: str = "sc") -> list[str]:
+    return list(get_phase(name, pipeline).expected_artifacts)
+
+
+def _read_phase2_methodology() -> str:
+    path = _repo_root() / "prompts" / "shared" / "v2" / "phase2-instantiate.md"
+    return path.read_text(encoding="utf-8")
 
 
 def build_recon_prompt(config: dict[str, Any]) -> str:
@@ -254,6 +302,80 @@ Check for these patterns and record YES/NO/UNAVAILABLE in
 After all required artifacts are written, return exactly one concise summary:
 `RECON COMPLETE: <contract_count> contracts, <dependency_count> dependencies, <template_count> templates recommended, limitations: <short list>`.
 """
+
+
+def build_instantiate_prompt(config: dict[str, Any]) -> str:
+    phase = get_phase("instantiate", str(config.get("pipeline", "sc")))
+    methodology = _read_phase2_methodology()
+    project_root = _none_if_blank(config.get("project_root"))
+    scratchpad = _none_if_blank(config.get("scratchpad"))
+    db_path = _none_if_blank(config.get("db_path"))
+    language = _none_if_blank(config.get("language", "evm"))
+    mode = _none_if_blank(config.get("mode", "core"))
+    pipeline = _none_if_blank(config.get("pipeline", "sc"))
+    required_recon = "\n".join(f"- `{name}`" for name in expected_recon_artifacts())
+    required_outputs = "\n".join(f"- `{name}`" for name in phase.expected_artifacts)
+
+    return f"""# Plamen LangGraph Instantiate Direct-Execution Prompt
+
+You are running only the `instantiate` phase of Plamen's smart-contract audit
+pipeline. This prompt is generated directly by `plamen_langgraph`; use the
+Phase 2 methodology below only to produce the spawn manifest contract for the
+next phase.
+
+## Configuration
+
+- Project root: `{project_root}`
+- Scratchpad: `{scratchpad}`
+- LangGraph database: `{db_path}`
+- Pipeline: `{pipeline}`
+- Mode: `{mode}`
+- Language: `{language}`
+
+## Hard Scope
+
+1. Execute instantiate only. Do not run breadth, inventory, depth,
+   verification, scoring, report, or any later phase.
+2. Do not spawn subagents. This worker plans breadth agents by writing
+   `spawn_manifest.md`; it must not call Task, launch agents, or create
+   breadth outputs.
+3. Read recon artifacts from the scratchpad as inputs. Required recon inputs:
+{required_recon}
+4. Write only the required Phase 2 output and optional `_lg_` debug notes under
+   the scratchpad.
+5. Required Phase 2 outputs:
+{required_outputs}
+6. Do not edit target source files, dependency manifests, git metadata, legacy
+   `.scratchpad`, or `_v2_checkpoint.json`.
+
+## Output Contract
+
+`spawn_manifest.md` must be a machine-readable Markdown contract. The first
+Markdown table containing both `Template` and `Required?` columns must be the
+spawned breadth-agent AGENT table. Every spawned `AGENT` row needs a unique
+agent identifier and a distinct first-pass `analysis_*.md` expected output.
+Do not include `verify_*.md`, `analysis_rescan_*.md`,
+`analysis_percontract_*.md`, `analysis_merged_into_*.md`, inventory, depth,
+chain, verification, scoring, or report artifacts in the AGENT table.
+
+## Methodology Body
+
+{methodology}
+
+## Return
+
+After `spawn_manifest.md` is written and re-read for self-checking, return
+exactly one concise summary:
+`INSTANTIATE COMPLETE: <agent_count> breadth agents queued, manifest: spawn_manifest.md, limitations: <short list>`.
+"""
+
+
+def build_phase_prompt(name: str, config: dict[str, Any]) -> str:
+    if name == "recon":
+        return build_recon_prompt(config)
+    if name == "instantiate":
+        return build_instantiate_prompt(config)
+    raise ValueError(f"unsupported LangGraph phase: {name}")
 
 
 def expected_recon_artifacts() -> list[str]:

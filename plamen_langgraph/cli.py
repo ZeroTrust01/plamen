@@ -19,31 +19,39 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
+    def add_common_options(command: argparse.ArgumentParser) -> None:
+        command.add_argument("project_root", help="Target project path.")
+        command.add_argument("--mode", default="core", choices=("light", "core", "thorough"))
+        command.add_argument("--pipeline", default="sc", choices=("sc",))
+        command.add_argument(
+            "--language",
+            default="auto",
+            choices=("auto", "evm", "solana", "aptos", "sui", "soroban"),
+        )
+        command.add_argument(
+            "--scratchpad",
+            default=None,
+            help=(
+                "Scratchpad directory. Defaults to "
+                f"<project_root>/{DEFAULT_SCRATCHPAD_DIR}."
+            ),
+        )
+        command.add_argument(
+            "--db",
+            dest="db_path",
+            default=None,
+            help="SQLite state DB path. Defaults to <scratchpad>/plamen_lg.sqlite.",
+        )
+        command.add_argument("--codex-bin", default="codex")
+        command.add_argument("--timeout-s", type=int, default=3000)
+
     recon = sub.add_parser("recon", help="Run the Phase-1 recon graph.")
-    recon.add_argument("project_root", help="Target project path.")
-    recon.add_argument("--mode", default="core", choices=("light", "core", "thorough"))
-    recon.add_argument("--pipeline", default="sc", choices=("sc",))
-    recon.add_argument(
-        "--language",
-        default="auto",
-        choices=("auto", "evm", "solana", "aptos", "sui", "soroban"),
+    add_common_options(recon)
+    instantiate = sub.add_parser(
+        "instantiate",
+        help="Run the supported Phase-2 graph prefix: recon -> instantiate.",
     )
-    recon.add_argument(
-        "--scratchpad",
-        default=None,
-        help=(
-            "Scratchpad directory. Defaults to "
-            f"<project_root>/{DEFAULT_SCRATCHPAD_DIR}."
-        ),
-    )
-    recon.add_argument(
-        "--db",
-        dest="db_path",
-        default=None,
-        help="SQLite state DB path. Defaults to <scratchpad>/plamen_lg.sqlite.",
-    )
-    recon.add_argument("--codex-bin", default="codex")
-    recon.add_argument("--timeout-s", type=int, default=3000)
+    add_common_options(instantiate)
     return parser
 
 
@@ -58,8 +66,6 @@ def _suppress_known_dependency_warnings() -> None:
 def main(argv: list[str] | None = None) -> int:
     _suppress_known_dependency_warnings()
     args = _build_parser().parse_args(argv)
-    if args.command != "recon":
-        raise SystemExit(f"unsupported command: {args.command}")
 
     config = build_config(
         project_root=args.project_root,
@@ -72,11 +78,11 @@ def main(argv: list[str] | None = None) -> int:
         timeout_s=args.timeout_s,
     )
     if __package__ in (None, ""):
-        from plamen_langgraph.plamen_lg.graph import run_recon_graph
+        from plamen_langgraph.plamen_lg.graph import run_graph
     else:
-        from .plamen_lg.graph import run_recon_graph
+        from .plamen_lg.graph import run_graph
 
-    state = run_recon_graph(config)
+    state = run_graph(config, target_phase=args.command)
 
     print(f"run_id: {state['run_id']}")
     print(f"status: {state['status']}")
