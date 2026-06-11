@@ -41,6 +41,14 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _langgraph_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _langgraph_prompt_path(filename: str) -> Path:
+    return _langgraph_root() / "prompts" / filename
+
+
 def _load_sc_phases() -> list[Any] | None:
     scripts_dir = _repo_root() / "scripts"
     if str(scripts_dir) not in sys.path:
@@ -177,18 +185,15 @@ def expected_phase_artifacts(name: str, pipeline: str = "sc") -> list[str]:
 
 
 def _read_phase2_methodology() -> str:
-    path = _repo_root() / "prompts" / "shared" / "v2" / "phase2-instantiate.md"
-    return path.read_text(encoding="utf-8")
+    return _langgraph_prompt_path("phase2-instantiate.md").read_text(encoding="utf-8")
 
 
 def _read_phase3_methodology() -> str:
-    path = _repo_root() / "prompts" / "shared" / "v2" / "phase3-breadth.md"
-    return path.read_text(encoding="utf-8")
+    return _langgraph_prompt_path("phase3-breadth.md").read_text(encoding="utf-8")
 
 
 def _read_phase4_methodology() -> str:
-    path = _repo_root() / "prompts" / "shared" / "v2" / "phase4-rescan.md"
-    return path.read_text(encoding="utf-8")
+    return _langgraph_prompt_path("phase4-rescan.md").read_text(encoding="utf-8")
 
 
 def build_recon_prompt(config: dict[str, Any]) -> str:

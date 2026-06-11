@@ -6,6 +6,10 @@ path to the supported prefix `recon -> instantiate`. Phase 3 extends it to
 `recon -> instantiate -> breadth` with manifest-exact first-pass breadth
 artifacts. The package intentionally lives outside the legacy driver.
 
+LangGraph-owned prompt bodies live in `plamen_langgraph/prompts/`. The legacy
+driver keeps using `prompts/shared/v2/`; these copies are intentionally separate
+so LangGraph prompt changes do not silently change the legacy V2 route.
+
 Run:
 
 ```bash

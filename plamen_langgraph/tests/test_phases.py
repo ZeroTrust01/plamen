@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from plamen_langgraph.plamen_lg import phases as phase_module
 from plamen_langgraph.plamen_lg.config import build_config
 from plamen_langgraph.plamen_lg.phases import (
     build_breadth_prompt,
@@ -11,6 +12,24 @@ from plamen_langgraph.plamen_lg.phases import (
     get_phase,
     get_recon_phase,
 )
+
+
+def test_langgraph_methodology_prompts_are_local_to_langgraph():
+    root = phase_module._repo_root()
+    readers = {
+        "phase2-instantiate.md": phase_module._read_phase2_methodology,
+        "phase3-breadth.md": phase_module._read_phase3_methodology,
+        "phase4-rescan.md": phase_module._read_phase4_methodology,
+    }
+
+    for filename, reader in readers.items():
+        langgraph_path = phase_module._langgraph_prompt_path(filename)
+        legacy_path = root / "prompts" / "shared" / "v2" / filename
+
+        assert "plamen_langgraph/prompts" in langgraph_path.as_posix()
+        assert langgraph_path.exists()
+        assert legacy_path.exists()
+        assert reader() == langgraph_path.read_text(encoding="utf-8")
 
 
 def test_langgraph_recon_prompt_is_direct_exec(tmp_path):
