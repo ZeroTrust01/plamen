@@ -395,7 +395,8 @@ def build_breadth_prompt(
     config: dict[str, Any],
     open_outputs: list[str] | None = None,
 ) -> str:
-    methodology = _read_phase3_methodology()
+    """Build a direct-execution prompt for manifest-exact breadth work."""
+    methodology = _read_phase3_methodology().strip()
     project_root = _none_if_blank(config.get("project_root"))
     scratchpad = _none_if_blank(config.get("scratchpad"))
     db_path = _none_if_blank(config.get("db_path"))
@@ -418,7 +419,7 @@ def build_breadth_prompt(
 
 You are running only the `breadth` phase of Plamen's smart-contract audit
 pipeline. This prompt is generated directly by `plamen_langgraph`; use the
-Phase 3 methodology below only to produce manifest-derived first-pass breadth
+breadth execution procedure below only to produce manifest-derived first-pass
 analysis outputs.
 
 ## Configuration
@@ -464,11 +465,11 @@ Create or refresh only these missing/stub expected outputs during this run:
    comes from filesystem existence and size only.
 7. Do not invent extra breadth output filenames. Non-manifest `analysis_*.md`
    files do not count toward completion.
-8. If this Codex environment does not expose subagent/task tools, perform the
-   open breadth analyses yourself sequentially and still write exactly the
+8. Available parallel worker tools are optional. If no such tool is available,
+   perform the open breadth analyses sequentially and still write exactly the
    manifest-derived outputs.
 
-## Methodology Body
+## Breadth Execution Procedure
 
 {methodology}
 

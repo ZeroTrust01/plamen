@@ -1,135 +1,111 @@
-# Phase 3: Parallel Breadth Analysis
+# Phase 3: Manifest-Exact Breadth Analysis
 
-> **Loaded by**: The V2 driver's Phase 3 subprocess (breadth analysis).
-> **Purpose**: Parallel spawn rule, post-spawn verification, overreach handling,
-> output file conventions, and agent closeout. Self-contained methodology for the
-> breadth analysis phase.
-
----
-
-## Spawn Rule
-
-Spawn breadth agents in bounded parallel batches.
-
-- If 1-6 breadth agents are missing, spawn them in a SINGLE message as parallel Task calls.
-- If 7+ breadth agents are missing, spawn a batch of at most 6 agents, wait for that batch, close completed agents, then spawn the next batch.
-- On retry, count only missing or stub breadth outputs from `spawn_manifest.md`; do not include already substantial outputs in the batch size.
-- Each agent operates on its own scope independently and writes to its exact
-  `Expected Output` from `spawn_manifest.md`.
+> **Loaded by**: `plamen_langgraph` direct-execution breadth worker.
+> **Purpose**: Produce only the first-pass `analysis_*.md` files named by
+> `spawn_manifest.md`.
 
 ---
 
-## Post-Spawn Verification
+## Step 3a: Read The Manifest Contract
 
-Completion is manifest-exact, not batch-exact. A returned batch does not mean
-the phase is complete.
+`spawn_manifest.md` is authoritative for Phase 3. Parse the first markdown table
+with both `Template` and `Required?` columns and build `EXPECTED_OUTPUTS` from
+rows that represent breadth AGENT work.
 
-Before exit, run this loop:
+Rules:
 
-1. Parse `spawn_manifest.md` and build `EXPECTED_OUTPUTS`:
-   - Include only rows that represent spawned breadth agents.
-   - Do not include skill, injectable, template, methodology, checklist,
-     binding, `merged into ...`, `covered by ...`, or `no separate agent`
-     rows. Those rows modify an agent prompt; they do not own standalone
-     `analysis_*.md` files.
-   - Use the explicit output filename if the manifest names one.
-   - Otherwise derive `{SCRATCHPAD}/analysis_<focus_area>.md`.
-2. Build `COMPLETE_OUTPUTS` from expected files that exist and are >=200 bytes.
-3. Build `OPEN_OUTPUTS` from expected files that are missing or <200 bytes.
-4. If `OPEN_OUTPUTS` is non-empty:
-   - Spawn agents for only the first `OPEN_OUTPUTS` batch.
-   - Every Task prompt MUST include: focus area, expected output filename,
-     and `FIRST ACTION: write a one-line header to {SCRATCHPAD}/{expected_output}`.
-   - Do not identify outputs by numeric agent id; `analysis_1.md` is invalid
-     when the manifest expects `analysis_core_state.md`.
-   - Use at most 6 parallel Task calls per batch.
-   - Wait for that batch and close completed agents.
-   - Return to step 2.
-5. Exit only when `OPEN_OUTPUTS` is empty.
-
-Do not stop because the current batch returned. Do not proceed with 7/12,
-9/12, or any partial manifest completion. If any required file is missing,
-re-spawn that exact agent before returning from Phase 3.
-
-Update `spawn_manifest.md` with completion status for each agent only after
-the corresponding output file exists and is >=200 bytes.
+- Include only rows with `Row Type = AGENT` or an equivalent breadth work row
+  accepted by the parser.
+- Ignore notes, non-agent binding rows, methodology rows, checklists, merged
+  rows, and optional rows that do not own a first-pass output.
+- Use the explicit `Expected Output` filename when present.
+- Otherwise derive `analysis_<focus_area>.md`.
+- Treat the manifest `Status` column as advisory only; filesystem existence and
+  size are the completion source of truth.
 
 ---
 
-## Output File Conventions
+## Step 3b: Limit This Run To Open Outputs
 
-Each breadth agent writes to a single file:
-```
-{SCRATCHPAD}/analysis_{focus_area}.md
+Use the current open-output list from the prompt wrapper as the work queue. If
+the wrapper says no outputs are open, re-check the expected files and return
+only after the manifest-derived outputs are all present and substantial.
+
+For every open output:
+
+1. Write exactly the manifest-derived filename under the scratchpad.
+2. Keep the output first-pass breadth only.
+3. Do not invent substitute names such as `analysis_1.md`.
+4. Do not create later-phase artifacts.
+
+Available parallel worker tools may be used in bounded batches, but they are
+optional. If no such tool is available, complete the open outputs sequentially
+in this direct worker.
+
+---
+
+## Step 3c: Output File Contract
+
+Each open breadth lane writes one markdown file:
+
+```text
+{SCRATCHPAD}/analysis_<focus_area>.md
 ```
 
-Where `{focus_area}` is the lowercase, hyphenated or underscored version of the agent's focus area (e.g., `analysis_core_state.md`, `analysis_access_control.md`, `analysis_oracle.md`).
-The manifest `Expected Output` column is authoritative. If it names a file,
-the agent must write that exact filename.
+The manifest `Expected Output` column overrides derived naming. Each output
+must be at least the configured breadth minimum size and should include:
 
-Finding IDs use a per-agent prefix:
-- Core state agent: `[CS-1]`, `[CS-2]`, ...
-- Access control agent: `[AC-1]`, `[AC-2]`, ...
-- Token flow agent: `[TF-1]`, `[TF-2]`, ...
-- External dependency: `[EX-1]`, `[EX-2]`, ...
-- (Other prefixes assigned per focus area)
+- focus area and scope reviewed;
+- concrete file/function references;
+- candidate findings or reviewed surfaces;
+- severity and confidence for candidate findings;
+- assumptions, limitations, and follow-up questions.
 
----
-
-## Overreach Handling
-
-If any breadth agent wrote later-phase files (inventory/depth/chain/verify/report), treat those files as invalid overreach for sequencing purposes. Record the violation in `{SCRATCHPAD}/violations.md`, close the offending agent, and continue the pipeline from inventory using only valid `analysis_*` outputs.
-
-Specifically, breadth agents write exactly one manifest-derived
-`analysis_<focus_area>.md` file. No other artifact family is a breadth output.
-`analysis_rescan_*.md` and `analysis_percontract_*.md` are owned by the later
-`rescan` phase, not first-pass breadth. Do not create, update, register, or
-mention them as completion artifacts in `spawn_manifest.md`.
+If no issue is confirmed for a lane, still write a substantive review of the
+surfaces checked and why no candidate finding was retained.
 
 ---
 
-## Agent Closeout
+## Step 3d: Scope Containment
 
-- Do NOT read analysis files after agents return — the inventory agent reads them in Phase 4a.
-- Close completed breadth agents before inventory begins. Do not carry finished breadth workers into subsequent phases.
+Breadth may read:
 
----
+- `spawn_manifest.md`;
+- recon artifacts;
+- target source files and local project configuration needed for the assigned
+  breadth lane.
 
-## Context Budget Protection
+Breadth must not:
 
-The orchestrator does NOT read agent output files. Agent outputs stay on disk and are consumed by downstream phases (inventory agent, depth agents, chain agents). This protects the orchestrator's context from saturation.
+- edit target source files, dependency manifests, git metadata, or legacy
+  `.scratchpad`;
+- run re-scan, per-contract review, inventory, semantic invariants, depth, RAG,
+  chain analysis, verification, scoring, or report work;
+- write `analysis_rescan_*.md`, `analysis_percontract_*.md`,
+  `analysis_merged_into_*.md`, inventory, depth, chain, verification, scoring,
+  or report artifacts;
+- treat non-manifest `analysis_*.md` files as completion evidence.
 
-Per the WRITE-THEN-VERIFY protocol, each agent:
-1. Writes output directly to `{SCRATCHPAD}/{expected_filename}` using the Write tool
-2. Returns ONLY a one-line summary: `"DONE: {N} findings written to {filename}"`
-
-The orchestrator verifies file existence and size (>=200 bytes) mechanically after each return.
-
----
-
-## Mode-Specific Agent Counts
-
-| Mode | Agent Count | Model |
-|------|-------------|-------|
-| Light | 3-4 | sonnet |
-| Core | 5-9 | opus |
-| Thorough | 5-9 | opus |
-
-Light mode caps at 3-4 sonnet agents. Core/Thorough use 5-9 opus agents based on complexity determination from Phase 2 Step 2a.
+If an overreach artifact already exists or is accidentally produced, record the
+problem in `{SCRATCHPAD}/violations.md`; do not count the overreach artifact as
+Phase 3 completion.
 
 ---
 
-## Scope Containment Directive
+## Step 3e: Completion Loop
 
-Every breadth agent prompt MUST end with:
+Before returning:
 
-```
-SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agents' output files. Do NOT proceed to subsequent pipeline phases (re-scan, per-contract, inventory, semantic invariants, depth, RAG, chain analysis, verification, report). Return your findings and stop.
-```
+1. Re-parse `spawn_manifest.md`.
+2. Rebuild the manifest-derived expected output list.
+3. Confirm every expected output exists under the scratchpad.
+4. Confirm every expected output is at least the configured breadth minimum
+   size.
+5. Confirm no required expected output was replaced by a non-manifest file.
+6. Confirm later-phase artifacts were not written as breadth outputs.
 
-This prevents agents from attempting to run the entire pipeline solo.
+If any expected output is missing or too small, complete that exact output and
+run the loop again. Exit only when the manifest-derived output set is complete.
 
-For the breadth orchestrator itself: always reuse existing substantial
-manifest-derived breadth outputs and spawn only the missing or stub rows from
-`spawn_manifest.md`. Re-run the completion loop until all expected outputs are
-substantial.
+Optional manifest status updates are allowed only after the corresponding file
+exists and is substantial. Status updates are not required for completion.

@@ -91,7 +91,7 @@ def test_breadth_phase_metadata_uses_canonical_sc_phase():
     assert expected_phase_artifacts("breadth") == ["analysis_*.md"]
 
 
-def test_langgraph_breadth_prompt_wraps_phase3_methodology(tmp_path):
+def test_langgraph_breadth_prompt_uses_direct_manifest_methodology(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     scratch = project / ".lg_scratchpad"
@@ -110,9 +110,19 @@ def test_langgraph_breadth_prompt_wraps_phase3_methodology(tmp_path):
     prompt = build_breadth_prompt(config, open_outputs=["analysis_core_state.md"])
 
     assert prompt.startswith("# Plamen LangGraph Breadth Direct-Execution Prompt")
-    assert "Phase 3: Parallel Breadth Analysis" in prompt
+    assert "Phase 3: Manifest-Exact Breadth Analysis" in prompt
     assert "`spawn_manifest.md` is authoritative" in prompt
     assert "`analysis_core_state.md`" in prompt
     assert "Do not run re-scan, per-contract review, inventory" in prompt
     assert "Do not write `analysis_rescan_*.md`" in prompt
+    assert "Available parallel worker tools are optional" in prompt
+    assert "V2 driver's Phase 3 subprocess" not in prompt
+    assert "Task calls" not in prompt
+    assert "Every Task prompt" not in prompt
+    assert "close completed agents" not in prompt
+    assert "Mode-Specific Agent Counts" not in prompt
+    assert "opus" not in prompt
+    assert "sonnet" not in prompt
+    assert "haiku" not in prompt
+    assert "Claude" not in prompt
     assert "_v2_checkpoint.json" in prompt
