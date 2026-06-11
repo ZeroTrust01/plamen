@@ -1,4 +1,4 @@
-# Phase 3b/3c: Mandatory Re-Scan And Per-Contract Review
+# LangGraph Rescan: Mandatory Additional Discovery
 
 > **Loaded by**: The LangGraph `rescan` node.
 > **Mode gate**: Always run after successful first-pass breadth.

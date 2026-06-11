@@ -148,13 +148,11 @@ def test_langgraph_breadth_prompt_uses_direct_manifest_methodology(tmp_path):
     assert "_v2_checkpoint.json" in prompt
 
 
-def test_rescan_phase_metadata_uses_canonical_sc_phase():
+def test_rescan_phase_metadata_is_langgraph_owned():
     phase = get_phase("rescan", "sc")
 
     assert phase.name == "rescan"
-    assert phase.section_markers == [
-        "Phase 3b: Breadth Re-Scan (+ Phase 3c per-contract sub-step)"
-    ]
+    assert phase.section_markers == ["LangGraph rescan"]
     assert expected_phase_artifacts("rescan") == [
         "analysis_rescan_*.md",
         "analysis_percontract_*.md",
@@ -180,7 +178,7 @@ def test_langgraph_rescan_prompt_uses_direct_mandatory_methodology(tmp_path):
     prompt = build_rescan_prompt(config)
 
     assert prompt.startswith("# Plamen LangGraph Rescan Direct-Execution Prompt")
-    assert "Phase 3b/3c: Mandatory Re-Scan And Per-Contract Review" in prompt
+    assert "LangGraph Rescan: Mandatory Additional Discovery" in prompt
     assert "`analysis_core_state.md`" in prompt
     assert "This phase is mandatory after successful first-pass breadth" in prompt
     assert "Do not call Task, launch subagents, or delegate work" in prompt

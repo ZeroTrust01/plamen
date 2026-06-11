@@ -70,7 +70,7 @@ def _build_parser() -> argparse.ArgumentParser:
     rescan = sub.add_parser(
         "rescan",
         help=(
-            "Run the supported Phase-4 Thorough graph prefix: "
+            "Run the supported mandatory re-scan graph prefix: "
             "recon -> instantiate -> breadth -> rescan."
         ),
     )

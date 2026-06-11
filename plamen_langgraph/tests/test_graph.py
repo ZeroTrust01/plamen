@@ -564,7 +564,7 @@ def test_rescan_runs_in_core_mode(tmp_path):
     ]
 
 
-def test_mocked_rescan_runs_full_thorough_prefix(tmp_path):
+def test_mocked_rescan_runs_full_prefix(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     config = build_config(project, mode="thorough")

@@ -143,6 +143,14 @@ def get_recon_phase(pipeline: str = "sc") -> Any:
 def get_phase(name: str, pipeline: str = "sc") -> Any:
     if pipeline != "sc":
         raise ValueError("LangGraph Phase 2 supports only the smart-contract pipeline: sc")
+    if name == "rescan":
+        return SimplePhase(
+            name="rescan",
+            section_markers=["LangGraph rescan"],
+            expected_artifacts=["analysis_rescan_*.md", "analysis_percontract_*.md"],
+            base_timeout_s=4800,
+            critical=True,
+        )
     phases = _load_sc_phases()
     if phases:
         for phase in phases:
@@ -165,16 +173,6 @@ def get_phase(name: str, pipeline: str = "sc") -> Any:
             section_markers=["Phase 3: Parallel Analysis"],
             expected_artifacts=["analysis_*.md"],
             base_timeout_s=10800,
-            critical=True,
-        )
-    if name == "rescan":
-        return SimplePhase(
-            name="rescan",
-            section_markers=[
-                "Phase 3b: Breadth Re-Scan (+ Phase 3c per-contract sub-step)"
-            ],
-            expected_artifacts=["analysis_rescan_*.md", "analysis_percontract_*.md"],
-            base_timeout_s=4800,
             critical=True,
         )
     raise ValueError(f"unsupported LangGraph phase: {name}")
