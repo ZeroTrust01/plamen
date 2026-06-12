@@ -799,7 +799,7 @@ def build_depth_prompt(
     config: dict[str, Any],
     required_outputs: list[list[str]] | None = None,
 ) -> str:
-    """Build a direct-execution prompt for the initial adaptive depth boundary."""
+    """Build a Phase 7 depth orchestration prompt."""
     methodology = _read_depth_methodology().strip()
     project_root = _none_if_blank(config.get("project_root"))
     scratchpad = _none_if_blank(config.get("scratchpad"))
@@ -829,12 +829,12 @@ def build_depth_prompt(
         )
     required_inputs_text = "\n".join(f"- {name}" for name in required_inputs)
 
-    return f"""# Plamen LangGraph Depth Direct-Execution Prompt
+    return f"""# Plamen LangGraph Phase 7 Depth Orchestration Prompt
 
 You are running only the `depth` phase of Plamen's smart-contract audit
 pipeline. This prompt is generated directly by `plamen_langgraph`; use the
-depth methodology below only to investigate inventoried findings and write the
-mode-required depth output set.
+Phase 7 depth methodology below to orchestrate Codex-native subagents,
+investigate inventoried findings, and write the mode-required depth output set.
 
 ## Configuration
 
@@ -865,8 +865,9 @@ at least one accepted filename from that group under the scratchpad.
 1. Execute depth only. Do not run RAG, chain analysis, verification,
    skeptic/crossbatch review, final scoring, report index, report writing, or
    report assembly.
-2. Do not call Task, launch subagents, create per-agent worktrees, or depend on
-   legacy checkpoint state. This is one direct LangGraph worker.
+2. Use Codex-native `spawn_agent` and `wait_agent` for Phase 7 depth subagents
+   as described below. Do not use legacy Claude-style subagent syntax, create
+   per-agent worktrees, or depend on legacy checkpoint state.
 3. Read `findings_inventory.md`, recon artifacts, `semantic_invariants.md` when
    present or required by mode, `state_variables.md`, `function_list.md`, and
    referenced target source files as needed.
@@ -880,6 +881,9 @@ at least one accepted filename from that group under the scratchpad.
    investigated candidates or an explicit no-finding rationale, evidence
    references, verdict/disposition, and limitations or unresolved evidence
    gaps.
+   Use a canonical `## Investigated Candidates` section in every non-confidence
+   depth output; when no reportable issue is found, put the explicit
+   no-finding or non-reportable rationale in that section.
 7. If Core or Thorough mode finds no scoreable findings, still write
    `confidence_scores.md` with an explicit no-scoreable-findings statement.
 

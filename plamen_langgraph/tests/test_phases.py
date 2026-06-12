@@ -354,24 +354,32 @@ def test_depth_phase_metadata_is_langgraph_owned():
     assert phase.base_timeout_s == 7200
 
 
-def test_langgraph_depth_prompt_uses_mode_aware_direct_methodology(tmp_path):
+def test_langgraph_depth_prompt_uses_mode_aware_subagent_methodology(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
     config = build_config(project, language="evm", mode="thorough").to_dict()
 
     prompt = build_depth_prompt(config)
 
-    assert prompt.startswith("# Plamen LangGraph Depth Direct-Execution Prompt")
-    assert "LangGraph Depth: Direct Adaptive Boundary" in prompt
+    assert prompt.startswith("# Plamen LangGraph Phase 7 Depth Orchestration Prompt")
+    assert "Phase 7 Depth: Codex Subagent Orchestration" in prompt
+    assert "spawn_agent" in prompt
+    assert "wait_agent" in prompt
     assert "`findings_inventory.md`" in prompt
     assert "`semantic_invariants.md`" in prompt
     assert "`depth_token_flow_findings.md`" in prompt
     assert "`confidence_scores.md`" in prompt
     assert "`design_stress_findings.md` or `depth_design_stress_findings.md`" in prompt
-    assert "Do not call Task, launch subagents" in prompt
     assert "Do not write `rag_validation.md`" in prompt
     assert "role/title heading" in prompt
+    assert "`## Investigated Candidates`" in prompt
     assert "_v2_checkpoint.json" in prompt
+    assert "Direct Adaptive Boundary" not in prompt
+    assert "Direct-Execution" not in prompt
+    assert "phase4b" not in prompt.lower()
+    assert "Phase 4b" not in prompt
+    assert "Task(subagent_type=" not in prompt
+    assert "Task(" not in prompt
 
 
 def test_sc_semantic_dedup_phase_metadata_is_langgraph_owned():

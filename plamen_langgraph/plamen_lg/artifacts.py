@@ -1053,7 +1053,8 @@ def _depth_output_structure_issues(path: Path) -> list[str]:
         (
             "investigated candidates or explicit no-finding rationale",
             r"\b(?:investigated|candidate|candidates|"
-            r"no\s+(?:finding|reportable|issue)|none_detected)\b",
+            r"no\s+(?:finding|reportable|issue)|"
+            r"non[-\s]reportable|none_detected)\b",
         ),
         ("evidence references", r"\b(?:evidence|source|location|reference)\b"),
         (
@@ -1125,17 +1126,17 @@ def _dedup_decisions_structure_issues(scratchpad: str | Path) -> list[str]:
     path = root / "dedup_decisions.md"
     if not path.exists():
         return ["missing semantic dedup artifact: dedup_decisions.md"]
+    issues: list[str] = []
     if path.stat().st_size < SC_SEMANTIC_DEDUP_MIN_BYTES:
-        return [
+        issues.append(
             "stub semantic dedup artifact: dedup_decisions.md "
             f"(<{SC_SEMANTIC_DEDUP_MIN_BYTES} bytes)"
-        ]
+        )
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
         return [f"dedup_decisions.md unreadable: {exc}"]
 
-    issues: list[str] = []
     normalized = text.lower()
     if "semantic dedup decisions" not in normalized:
         issues.append("dedup_decisions.md missing Semantic Dedup Decisions heading")

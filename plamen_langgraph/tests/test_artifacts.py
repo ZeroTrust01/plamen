@@ -612,6 +612,32 @@ def test_depth_validator_accepts_alias_groups(tmp_path):
     assert validate_phase_artifacts("depth", scratch, [], mode="thorough") == []
 
 
+def test_depth_validator_accepts_non_reportable_rationale_section(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_invariants_prerequisites(scratch)
+    (scratch / "semantic_invariants.md").write_text(
+        _valid_invariants_body(),
+        encoding="utf-8",
+    )
+    _write_depth_outputs(scratch, "light")
+    (scratch / "depth_token_flow_findings.md").write_text(
+        "# Depth Token Flow Findings\n\n"
+        "## Live Findings\n\n"
+        "### [ER-1] Share conversion mismatch\n\n"
+        "Evidence:\n"
+        "- Source location: src/Vault.sol:10-20. Reference: findings_inventory.md ER-1.\n\n"
+        "Verdict: Confirmed token-flow issue.\n\n"
+        "## Non-Reportable, Absorbed, Or Unresolved Checks\n\n"
+        "- [FM-01] Non-reportable for this token-flow pass because no balance delta was falsified.\n\n"
+        "## Limitations And Evidence Gaps\n\n"
+        "- Limitations: unresolved deployment configuration gap remains.\n\n"
+        + ("Depth evidence. " * DEPTH_MIN_BYTES),
+        encoding="utf-8",
+    )
+
+    assert validate_phase_artifacts("depth", scratch, [], mode="light") == []
+
+
 def test_depth_validator_rejects_missing_stub_incomplete_and_forbidden_outputs(tmp_path):
     scratch = tmp_path / ".lg_scratchpad"
     _write_invariants_prerequisites(scratch)
