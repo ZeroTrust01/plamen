@@ -33,12 +33,23 @@ def test_langgraph_methodology_prompts_are_local_to_langgraph():
         assert reader() == langgraph_path.read_text(encoding="utf-8")
 
 
-def test_inventory_methodology_uses_shared_v2_base():
-    root = phase_module._repo_root()
-    shared_path = root / "prompts" / "shared" / "v2" / "phase4a-inventory-base.md"
+def test_inventory_methodology_is_langgraph_owned():
+    langgraph_path = phase_module._langgraph_prompt_path("phase5-inventory.md")
+    shared_path = (
+        phase_module._repo_root()
+        / "prompts"
+        / "shared"
+        / "v2"
+        / "phase4a-inventory-base.md"
+    )
 
+    assert "plamen_langgraph/prompts" in langgraph_path.as_posix()
+    assert langgraph_path.exists()
     assert shared_path.exists()
-    assert phase_module._read_phase5_methodology() == shared_path.read_text(
+    assert phase_module._read_inventory_methodology() == langgraph_path.read_text(
+        encoding="utf-8"
+    )
+    assert phase_module._read_inventory_methodology() != shared_path.read_text(
         encoding="utf-8"
     )
 
@@ -224,7 +235,7 @@ def test_langgraph_inventory_prompt_uses_single_phase_methodology(tmp_path):
     )
 
     assert prompt.startswith("# Plamen LangGraph Inventory Direct-Execution Prompt")
-    assert "Phase 4a: Inventory Agent Base Methodology" in prompt
+    assert "LangGraph Inventory: Single-Phase Consolidation" in prompt
     assert "`analysis_core_state.md`" in prompt
     assert "`analysis_rescan_gap_review.md`" in prompt
     assert "Required output artifact: `findings_inventory.md`" in prompt

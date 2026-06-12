@@ -206,14 +206,8 @@ def _read_phase4_methodology() -> str:
     return _langgraph_prompt_path("phase4-rescan.md").read_text(encoding="utf-8")
 
 
-def _read_phase5_methodology() -> str:
-    return (
-        _repo_root()
-        / "prompts"
-        / "shared"
-        / "v2"
-        / "phase4a-inventory-base.md"
-    ).read_text(encoding="utf-8")
+def _read_inventory_methodology() -> str:
+    return _langgraph_prompt_path("phase5-inventory.md").read_text(encoding="utf-8")
 
 
 def build_recon_prompt(config: dict[str, Any]) -> str:
@@ -617,7 +611,7 @@ def build_inventory_prompt(
     source_files: list[str] | None = None,
 ) -> str:
     """Build a direct-execution prompt for single-phase inventory synthesis."""
-    methodology = _read_phase5_methodology().strip()
+    methodology = _read_inventory_methodology().strip()
     project_root = _none_if_blank(config.get("project_root"))
     scratchpad = _none_if_blank(config.get("scratchpad"))
     db_path = _none_if_blank(config.get("db_path"))
