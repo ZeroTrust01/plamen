@@ -2539,6 +2539,130 @@ Deferred after Phase 7:
 - richer automatic resume semantics
 - compatibility with legacy artifact gates
 
+## Phase 8 Implementation Plan
+
+Phase 8 should implement a LangGraph-owned SC semantic dedup phase directly
+after `depth`:
+
+```text
+Light:
+recon -> instantiate -> breadth -> rescan -> inventory -> depth -> sc_semantic_dedup
+
+Core/Thorough:
+recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth -> sc_semantic_dedup
+```
+
+LangGraph cancels `attention_repair` and `rag_sweep`. They are not Phase 8
+predecessors, not deferred LangGraph work, and not accepted completion evidence.
+
+Phase 8 should not reuse legacy private mechanical helpers. Candidate
+generation, passthrough handling, budget guards, swap behavior, and lightweight
+finding-record refresh should live in LangGraph-owned code.
+
+Phase 8 artifact contract:
+
+- Required validated inputs:
+  - `findings_inventory.md`
+  - all mode-required depth artifacts
+  - Core/Thorough semantic invariant prerequisites through the existing depth
+    prerequisite chain
+- LangGraph-generated candidate/context packets:
+  - `dedup_candidate_pairs.md`
+  - `dedup_focus_inventory.md` when live candidate pairs exist
+  - `dedup_candidate_pairs_full.md` only when the bounded live packet omits
+    extra traceability candidates
+- Required phase outputs:
+  - `dedup_decisions.md`
+  - `findings_inventory_deduped.md`
+- Post-success side effects:
+  - backup active inventory to `findings_inventory_pre_dedup.md`
+  - swap `findings_inventory_deduped.md` into `findings_inventory.md`
+  - write LangGraph-owned `finding_records.json`
+
+Phase 8 development checklist:
+
+1. Add `sc_semantic_dedup` to `SUPPORTED_TARGET_PHASES`.
+2. Add `get_phase("sc_semantic_dedup")` support with expected artifacts
+   `dedup_decisions.md` and `findings_inventory_deduped.md`.
+3. Add a LangGraph-owned prompt body under `plamen_langgraph/prompts/` scoped
+   to SC inventory dedup only.
+4. Add `build_sc_semantic_dedup_prompt(config)` that wraps project root,
+   scratchpad, pipeline, mode, language, required inputs, required outputs,
+   canceled-stage rules, and candidate-packet boundaries.
+5. Add LangGraph-owned dedup preparation code that parses
+   `findings_inventory.md`, generates bounded candidate pairs, writes a focus
+   packet for live IDs, and writes deterministic passthrough outputs when no
+   dedup signals exist.
+6. Add a budget guard that preserves the active inventory unchanged when the
+   candidate set is too large for one bounded semantic-dedup pass.
+7. Add successful-run finalization that validates `findings_inventory_deduped.md`
+   before backing up and swapping the active inventory.
+8. In Light mode, compile the graph as
+   `recon -> instantiate -> breadth -> rescan -> inventory -> depth -> sc_semantic_dedup`.
+9. In Core and Thorough, compile the graph as
+   `recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth -> sc_semantic_dedup`.
+10. Add `run_sc_semantic_dedup_graph()` as a wrapper around
+    `run_graph(config, target_phase="sc_semantic_dedup")`.
+11. In CLI single-node mode, infer the latest successful `depth` run for the
+    same project and scratchpad.
+12. Add `expected_sc_semantic_dedup_artifacts()`,
+    `sc_semantic_dedup_prerequisite_issues()`, and forbidden-artifact checks in
+    `plamen_langgraph/plamen_lg/artifacts.py`.
+13. Extend `validate_phase_artifacts("sc_semantic_dedup", scratchpad, records)`
+    so `dedup_decisions.md` is substantial, the deduped inventory remains valid,
+    and unchanged passthrough is rejected when live candidate pairs exist.
+14. Reject `attention_repair_summary.md`, `rag_validation.md`, chain,
+    verification, report, and legacy checkpoint artifacts as Phase 8 completion
+    evidence.
+15. Update `plamen_langgraph/README.md` to document the command, graph order,
+    single-node recovery, generated candidate packets, swap behavior, and
+    `_lg_sc_semantic_dedup_*` debug files.
+16. Add unit tests before manual smoke testing.
+17. Run existing LangGraph tests to prove behavior did not regress.
+
+Phase 8 interface notes:
+
+```bash
+python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project --mode light
+python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project --mode core
+python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project \
+  --single-node --base-run-id <depth-run-id>
+```
+
+When `--base-run-id` is omitted, single-node mode should infer the latest
+successful `depth` run for the same project and scratchpad.
+
+Prefix-mode Phase 8 does not need additional SQLite tables. It should reuse the
+existing `runs`, `phase_runs`, and `artifacts` tables.
+
+Phase 8 acceptance criteria:
+
+1. `python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project --mode
+   light` runs the Light prefix through `depth` and then semantic dedup.
+2. `python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project --mode
+   core` runs the Core prefix through `invariants`, `depth`, and semantic dedup.
+3. Thorough mode uses the same predecessor ordering as Core with Thorough depth
+   artifact requirements.
+4. `attention_repair` and `rag_sweep` are never inserted into the LangGraph
+   prefix.
+5. Single-node mode runs only `sc_semantic_dedup` after validating a successful
+   `depth` predecessor and mode-required artifacts.
+6. Missing, stub, or structurally incomplete depth artifacts fail before
+   semantic dedup invokes Codex.
+7. No-candidate inventories write deterministic passthrough outputs and do not
+   invoke Codex.
+8. Live candidate pairs write `dedup_candidate_pairs.md` and
+   `dedup_focus_inventory.md` before invoking Codex.
+9. If live candidate pairs exist, passthrough-only decisions fail unless the
+   budget guard explicitly selected preservation.
+10. Successful semantic dedup swaps `findings_inventory_deduped.md` into
+    `findings_inventory.md` only after validation.
+11. `findings_inventory_pre_dedup.md` and LangGraph-owned
+    `finding_records.json` are written after a successful swap.
+12. Chain, verification, report, canceled-stage, and legacy checkpoint artifacts
+    do not satisfy the semantic dedup gate.
+13. Unit tests pass with mocked runners.
+
 ## Migration Strategy
 
 Keep both engines side by side until the LangGraph path is proven.

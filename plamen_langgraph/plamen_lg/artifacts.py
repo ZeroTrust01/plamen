@@ -12,6 +12,7 @@ RESCAN_MIN_BYTES = 200
 INVENTORY_MIN_BYTES = 200
 INVARIANTS_MIN_BYTES = 200
 DEPTH_MIN_BYTES = 200
+SC_SEMANTIC_DEDUP_MIN_BYTES = 100
 INVENTORY_MAX_SOURCE_FILES = 40
 INVENTORY_MAX_SOURCE_BYTES = 512_000
 INVENTORY_SOURCE_TOO_LARGE = (
@@ -543,6 +544,11 @@ def expected_depth_artifacts(mode: str) -> list[str]:
     return flattened
 
 
+def expected_sc_semantic_dedup_artifacts(scratchpad: str | Path) -> list[str]:
+    del scratchpad
+    return ["dedup_decisions.md", "findings_inventory_deduped.md"]
+
+
 def check_depth_artifacts(scratchpad: str | Path, mode: str) -> dict[str, Any]:
     root = Path(scratchpad)
     records: list[dict[str, Any]] = []
@@ -722,6 +728,66 @@ def forbidden_depth_artifacts(scratchpad: str | Path) -> list[str]:
     return sorted(set(forbidden))
 
 
+def forbidden_sc_semantic_dedup_artifacts(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    if not root.exists():
+        return []
+
+    forbidden: list[str] = []
+    downstream_prefixes = (
+        "chain_",
+        "verify_",
+        "verification_",
+        "skeptic_",
+        "crossbatch_",
+        "report_",
+        "final_scoring",
+    )
+    forbidden_exact = {
+        "AUDIT_REPORT.md",
+        "attention_repair_summary.md",
+        "rag_validation.md",
+        "hypotheses.md",
+        "finding_mapping.md",
+        "enabler_results.md",
+        "chain_hypotheses.md",
+        "composition_coverage.md",
+        "synthesis_full.md",
+        "verification_queue.md",
+        "verification_queue_crithigh.md",
+        "report_index.md",
+    }
+    allowed_exact = {
+        "dedup_candidate_pairs.md",
+        "dedup_candidate_pairs_full.md",
+        "dedup_decisions.md",
+        "dedup_focus_inventory.md",
+        "findings_inventory.md",
+        "findings_inventory_base.md",
+        "findings_inventory_deduped.md",
+        "findings_inventory_pre_dedup.md",
+        "semantic_invariants.md",
+        "violations.md",
+    }
+    for path in root.iterdir():
+        if path.name == "_v2_checkpoint.json":
+            forbidden.append(path.name)
+            continue
+        if not path.is_file() or path.suffix != ".md":
+            continue
+        name = path.name
+        if name.startswith("_lg_") or name.startswith("depth_"):
+            continue
+        if name in allowed_exact or name.startswith("blind_spot_"):
+            continue
+        if name in forbidden_exact:
+            forbidden.append(name)
+            continue
+        if any(name.startswith(prefix) for prefix in downstream_prefixes):
+            forbidden.append(name)
+    return sorted(set(forbidden))
+
+
 def forbidden_rescan_artifacts(scratchpad: str | Path) -> list[str]:
     root = Path(scratchpad)
     if not root.exists():
@@ -799,14 +865,19 @@ def _has_markdown_section(text: str, section_name: str) -> bool:
     )
 
 
-def _inventory_structure_issues(scratchpad: str | Path) -> list[str]:
+def _inventory_file_structure_issues(
+    scratchpad: str | Path,
+    filename: str,
+    *,
+    validate_source_summary: bool = True,
+) -> list[str]:
     root = Path(scratchpad)
-    path = root / "findings_inventory.md"
+    path = root / filename
     if not path.exists():
-        return ["missing inventory artifact: findings_inventory.md"]
+        return [f"missing inventory artifact: {filename}"]
     if path.stat().st_size < INVENTORY_MIN_BYTES:
         return [
-            "stub inventory artifact: findings_inventory.md "
+            f"stub inventory artifact: {filename} "
             f"(<{INVENTORY_MIN_BYTES} bytes)"
         ]
 
@@ -815,7 +886,7 @@ def _inventory_structure_issues(scratchpad: str | Path) -> list[str]:
     required_sections = ["Source Summary", "Master Table", "Per-Finding Detail"]
     for section in required_sections:
         if not _has_markdown_section(text, section):
-            issues.append(f"findings_inventory.md missing required section: {section}")
+            issues.append(f"{filename} missing required section: {section}")
 
     required_labels = [
         "Finding ID",
@@ -830,19 +901,23 @@ def _inventory_structure_issues(scratchpad: str | Path) -> list[str]:
     normalized = text.lower()
     for label in required_labels:
         if label.lower() not in normalized:
-            issues.append(f"findings_inventory.md missing required field label: {label}")
+            issues.append(f"{filename} missing required field label: {label}")
 
     source_summary = _markdown_section(text, "Source Summary")
     if not source_summary:
         source_summary = text if _has_markdown_section(text, "Source Summary") else ""
-    if source_summary:
+    if validate_source_summary and source_summary:
         for name in inventory_source_files(root):
             if name not in source_summary:
                 issues.append(
-                    "findings_inventory.md Source Summary missing discovery source: "
+                    f"{filename} Source Summary missing discovery source: "
                     f"{name}"
                 )
     return issues
+
+
+def _inventory_structure_issues(scratchpad: str | Path) -> list[str]:
+    return _inventory_file_structure_issues(scratchpad, "findings_inventory.md")
 
 
 def invariants_prerequisite_issues(scratchpad: str | Path) -> list[str]:
@@ -1009,6 +1084,85 @@ def _depth_structure_issues(scratchpad: str | Path, mode: str) -> list[str]:
     return issues
 
 
+def sc_semantic_dedup_prerequisite_issues(
+    scratchpad: str | Path,
+    mode: str,
+) -> list[str]:
+    root = Path(scratchpad)
+    issues = depth_prerequisite_issues(root, mode)
+    issues.extend(_depth_structure_issues(root, mode))
+    return issues
+
+
+def _semantic_dedup_live_pair_count(scratchpad: str | Path) -> int:
+    path = Path(scratchpad) / "dedup_candidate_pairs.md"
+    if not path.exists() or path.stat().st_size <= 0:
+        return 0
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return 0
+    count = 0
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) < 2:
+            continue
+        first = _strip_markdown(cells[0]).lower()
+        if not first or first.startswith("-") or first.startswith("finding"):
+            continue
+        if re.search(r"\b[A-Z][A-Z0-9_-]*-\d+\b", cells[0]) and re.search(
+            r"\b[A-Z][A-Z0-9_-]*-\d+\b", cells[1]
+        ):
+            count += 1
+    return count
+
+
+def _dedup_decisions_structure_issues(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    path = root / "dedup_decisions.md"
+    if not path.exists():
+        return ["missing semantic dedup artifact: dedup_decisions.md"]
+    if path.stat().st_size < SC_SEMANTIC_DEDUP_MIN_BYTES:
+        return [
+            "stub semantic dedup artifact: dedup_decisions.md "
+            f"(<{SC_SEMANTIC_DEDUP_MIN_BYTES} bytes)"
+        ]
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        return [f"dedup_decisions.md unreadable: {exc}"]
+
+    issues: list[str] = []
+    normalized = text.lower()
+    if "semantic dedup decisions" not in normalized:
+        issues.append("dedup_decisions.md missing Semantic Dedup Decisions heading")
+    if "status" not in normalized and "summary" not in normalized:
+        issues.append("dedup_decisions.md missing Status or Summary")
+    if re.search(r"(?i)\b(?:TODO|TBD|PLACEHOLDER)\b|draft-only", text):
+        issues.append("dedup_decisions.md contains placeholder marker")
+
+    live_pairs = _semantic_dedup_live_pair_count(root)
+    if live_pairs > 0 and "passthrough" in normalized and "budget guard" not in normalized:
+        issues.append(
+            "semantic dedup left PASSTHROUGH decisions despite live candidate pairs"
+        )
+    return issues
+
+
+def _sc_semantic_dedup_structure_issues(scratchpad: str | Path) -> list[str]:
+    issues = _dedup_decisions_structure_issues(scratchpad)
+    issues.extend(
+        _inventory_file_structure_issues(
+            scratchpad,
+            "findings_inventory_deduped.md",
+        )
+    )
+    return issues
+
+
 def validate_phase_artifacts(
     phase_name: str,
     scratchpad: str | Path,
@@ -1090,6 +1244,17 @@ def validate_phase_artifacts(
             issues.append(
                 "depth phase wrote forbidden downstream or legacy artifact(s): "
                 + ", ".join(forbidden[:12])
+            )
+        return issues
+    if phase_name == "sc_semantic_dedup":
+        root = Path(scratchpad)
+        issues = sc_semantic_dedup_prerequisite_issues(root, mode)
+        issues.extend(_sc_semantic_dedup_structure_issues(root))
+        forbidden = forbidden_sc_semantic_dedup_artifacts(root)
+        if forbidden:
+            issues.append(
+                "sc_semantic_dedup phase wrote forbidden downstream, canceled, "
+                "or legacy artifact(s): " + ", ".join(forbidden[:12])
             )
         return issues
     raise ValueError(f"unsupported LangGraph phase: {phase_name}")

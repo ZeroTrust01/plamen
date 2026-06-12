@@ -25,6 +25,7 @@ from plamen_langgraph.plamen_lg.graph import (
     run_phase_node,
     run_recon_graph,
     run_rescan_graph,
+    run_sc_semantic_dedup_graph,
 )
 from plamen_langgraph.plamen_lg.phases import expected_recon_artifacts
 from plamen_langgraph.plamen_lg.store import StateStore
@@ -70,6 +71,7 @@ class FakeRunner:
         write_inventory_artifact: bool = True,
         write_invariants_artifact: bool = True,
         write_depth_artifacts: bool = True,
+        write_sc_semantic_dedup_artifacts: bool = True,
         manifest_text: str = VALID_SPAWN_MANIFEST,
         returncodes: dict[str, int] | None = None,
     ) -> None:
@@ -81,13 +83,16 @@ class FakeRunner:
         self.write_inventory_artifact = write_inventory_artifact
         self.write_invariants_artifact = write_invariants_artifact
         self.write_depth_artifacts = write_depth_artifacts
+        self.write_sc_semantic_dedup_artifacts = write_sc_semantic_dedup_artifacts
         self.manifest_text = manifest_text
         self.returncodes = returncodes or {}
         self.calls = []
 
     def run(self, prompt, project_root, scratchpad, output_paths, timeout_s):
         stdout_path = str(output_paths["stdout_path"])
-        if "_lg_depth_" in stdout_path:
+        if "_lg_sc_semantic_dedup_" in stdout_path:
+            phase = "sc_semantic_dedup"
+        elif "_lg_depth_" in stdout_path:
             phase = "depth"
         elif "_lg_invariants_" in stdout_path:
             phase = "invariants"
@@ -156,6 +161,8 @@ class FakeRunner:
             else:
                 mode = "core"
             write_depth_artifacts(output_paths["stdout_path"].parent, mode)
+        if phase == "sc_semantic_dedup" and self.write_sc_semantic_dedup_artifacts:
+            write_sc_semantic_dedup_artifacts(output_paths["stdout_path"].parent)
         return FakeResult(
             stdout_path=str(output_paths["stdout_path"]),
             stderr_path=str(output_paths["stderr_path"]),
@@ -225,6 +232,29 @@ def inventory_body(source_files: list[str]) -> str:
 def write_inventory_artifact(scratch) -> None:
     (scratch / "findings_inventory.md").write_text(
         inventory_body(inventory_source_files(scratch)),
+        encoding="utf-8",
+    )
+
+
+def duplicate_inventory_body(source_files: list[str]) -> str:
+    base = inventory_body(source_files)
+    return base + (
+        "\n### [CS-2] Example issue duplicate angle\n\n"
+        "Finding ID: [CS-2]\n"
+        "Title: Example issue duplicate angle\n"
+        "Severity: Medium\n"
+        "Verdict: CONFIRMED\n"
+        "Location: src/A.sol:12\n"
+        "Source IDs: DT-1\n"
+        "Root Cause: Missing validation.\n"
+        "Preferred Tag: [CODE]\n\n"
+        + ("Duplicate evidence. " * INVENTORY_MIN_BYTES)
+    )
+
+
+def write_duplicate_inventory_artifact(scratch) -> None:
+    (scratch / "findings_inventory.md").write_text(
+        duplicate_inventory_body(inventory_source_files(scratch)),
         encoding="utf-8",
     )
 
@@ -318,6 +348,33 @@ def write_depth_artifacts(scratch, mode: str = "core") -> None:
             depth_body(name.replace("_", " ").replace(".md", "").title()),
             encoding="utf-8",
         )
+
+
+def write_sc_semantic_dedup_artifacts(scratch) -> None:
+    inventory = (scratch / "findings_inventory.md").read_text(
+        encoding="utf-8",
+        errors="replace",
+    )
+    (scratch / "findings_inventory_deduped.md").write_text(
+        inventory,
+        encoding="utf-8",
+    )
+    (scratch / "dedup_decisions.md").write_text(
+        "# Semantic Dedup Decisions\n\n"
+        "## Summary\n"
+        "- Live pairs evaluated: 1\n"
+        "- Merges: 0\n"
+        "- Groups: 0\n"
+        "- Kept separate: 1\n\n"
+        "## Decisions\n\n"
+        "### KEEP SEPARATE: CS-1 vs CS-2\n"
+        "- Reason: separate root cause under LangGraph review.\n\n"
+        "## Dedup Status Table\n"
+        "| Finding ID | Status | Notes |\n"
+        "|------------|--------|-------|\n"
+        "| CS-1 | PASS | unchanged |\n",
+        encoding="utf-8",
+    )
 
 
 def seed_base_run(
@@ -1763,4 +1820,107 @@ def test_single_node_depth_core_requires_successful_invariants_and_artifacts(tmp
     assert "missing invariants artifact: semantic_invariants.md" in (
         state["error"] or ""
     )
+    assert runner.calls == []
+
+
+def test_mocked_sc_semantic_dedup_light_skips_runner_without_candidates(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="light")
+    runner = FakeRunner()
+
+    state = run_sc_semantic_dedup_graph(config, runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["completed_phases"] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "depth",
+        "sc_semantic_dedup",
+    ]
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "depth",
+    ]
+    scratch = project / ".lg_scratchpad"
+    assert (scratch / "dedup_candidate_pairs.md").exists()
+    assert (scratch / "dedup_decisions.md").exists()
+    assert (scratch / "findings_inventory_deduped.md").exists()
+    assert not (scratch / "_lg_sc_semantic_dedup_prompt.md").exists()
+    assert not (scratch / "attention_repair_summary.md").exists()
+    assert not (scratch / "rag_validation.md").exists()
+
+    store = StateStore(config.db_path)
+    phases = store.fetch_all(
+        "select phase_name, status from phase_runs where run_id = ?",
+        (state["run_id"],),
+    )
+    assert {"phase_name": "sc_semantic_dedup", "status": "succeeded"} in phases
+
+
+def test_single_node_sc_semantic_dedup_uses_successful_depth_and_swaps(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="light")
+    scratch = project / ".lg_scratchpad"
+    scratch.mkdir()
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    write_duplicate_inventory_artifact(scratch)
+    write_depth_artifacts(scratch, "light")
+    seed_base_run(
+        config,
+        "base-run",
+        ["recon", "instantiate", "breadth", "rescan", "inventory", "depth"],
+    )
+    runner = FakeRunner()
+
+    state = run_phase_node(config, "sc_semantic_dedup", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["base_run_id"] == "base-run"
+    assert [call["phase"] for call in runner.calls] == ["sc_semantic_dedup"]
+    assert (scratch / "_lg_sc_semantic_dedup_prompt.md").exists()
+    assert (scratch / "dedup_focus_inventory.md").exists()
+    assert (scratch / "findings_inventory_pre_dedup.md").exists()
+    assert (scratch / "finding_records.json").exists()
+    assert "CS-2" in (scratch / "findings_inventory.md").read_text(encoding="utf-8")
+
+
+def test_single_node_sc_semantic_dedup_requires_successful_depth(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="light")
+    scratch = project / ".lg_scratchpad"
+    scratch.mkdir()
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    write_inventory_artifact(scratch)
+    seed_base_run(
+        config,
+        "base-run",
+        ["recon", "instantiate", "breadth", "rescan", "inventory"],
+    )
+    runner = FakeRunner()
+
+    state = run_phase_node(
+        config,
+        "sc_semantic_dedup",
+        base_run_id="base-run",
+        runner=runner,
+    )
+
+    assert state["status"] == "failed"
+    assert "successful depth" in (state["error"] or "")
     assert runner.calls == []

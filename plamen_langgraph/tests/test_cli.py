@@ -231,6 +231,44 @@ def test_depth_cli_parses_same_options_as_invariants(tmp_path):
     assert args.timeout_s == 777
 
 
+def test_sc_semantic_dedup_cli_parses_same_options_as_depth(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    scratch = tmp_path / "scratch"
+    db = tmp_path / "state.sqlite"
+
+    args = _build_parser().parse_args(
+        [
+            "sc_semantic_dedup",
+            str(project),
+            "--mode",
+            "core",
+            "--pipeline",
+            "sc",
+            "--language",
+            "evm",
+            "--scratchpad",
+            str(scratch),
+            "--db",
+            str(db),
+            "--codex-bin",
+            "codex-test",
+            "--timeout-s",
+            "888",
+        ]
+    )
+
+    assert args.command == "sc_semantic_dedup"
+    assert args.project_root == str(project)
+    assert args.mode == "core"
+    assert args.pipeline == "sc"
+    assert args.language == "evm"
+    assert args.scratchpad == str(scratch)
+    assert args.db_path == str(db)
+    assert args.codex_bin == "codex-test"
+    assert args.timeout_s == 888
+
+
 def test_single_node_cli_options_preserve_target_phase(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
@@ -254,7 +292,7 @@ def test_single_node_cli_allows_omitted_base_run_id_for_tail_phases(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
 
-    for command in ("rescan", "inventory", "invariants", "depth"):
+    for command in ("rescan", "inventory", "invariants", "depth", "sc_semantic_dedup"):
         args = _build_parser().parse_args(
             [
                 command,
