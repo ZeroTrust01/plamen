@@ -1,4 +1,4 @@
-# Plamen LangGraph Phase 1-5 Refactor Plan
+# Plamen LangGraph Phase 1-6 Refactor Plan
 
 ## Objective
 
@@ -12,6 +12,8 @@ Phase 4 extends the same prefix to the mandatory additional breadth pass:
 `rescan`.
 Phase 5 extends the same prefix to a single canonical `inventory` phase that
 consolidates all discovery outputs.
+Phase 6 extends the same prefix to the semantic invariant pre-computation
+phase: `invariants`.
 
 The Phase 1 goal is to prove the new architecture can:
 
@@ -68,6 +70,20 @@ The Phase 5 goal is to prove that the architecture can:
 - fail the inventory phase when `findings_inventory.md` is missing, stub, or
   structurally incomplete
 - record inventory artifacts and phase status in SQLite
+- still avoid legacy driver/checkpoint mutation
+
+The Phase 6 goal is to prove that the architecture can:
+
+- execute a six-node graph:
+  `recon -> instantiate -> breadth -> rescan -> inventory -> invariants`
+- run semantic invariant Pass 1 only in Core and Thorough modes
+- fail clearly when `invariants` is requested in Light mode
+- consume `findings_inventory.md`, recon artifacts, and state/function maps as
+  bounded read-only inputs
+- write one canonical `semantic_invariants.md` artifact
+- fail the invariants phase when `semantic_invariants.md` is missing, stub, or
+  structurally incomplete
+- record invariants artifacts and phase status in SQLite
 - still avoid legacy driver/checkpoint mutation
 
 ## High-Level Architecture
@@ -165,6 +181,24 @@ new CLI entry
       -> end
 ```
 
+Phase 6 target shape:
+
+```text
+new CLI entry
+  -> LangGraph graph
+      -> recon phase node
+      -> instantiate phase node
+      -> breadth phase node
+      -> rescan phase node
+      -> inventory phase node
+      -> invariants phase node
+          -> inventory/recon prerequisite gate
+          -> CodexRunner
+          -> semantic_invariants.md structural gate
+          -> SQLite state store
+      -> end
+```
+
 Long-term target architecture:
 
 ```text
@@ -191,6 +225,11 @@ Phase 5 deliberately does not port the legacy `inventory_prepare` and
 `inventory_chunk_a/b/c` split. The initial LangGraph inventory node should run
 as one direct phase node and fail closed when the discovery source set is too
 large for a safe single-pass inventory.
+Phase 6 ports only the legacy semantic invariant Pass 1 boundary. It should
+run as one direct phase node, use a LangGraph-owned copy of the Pass 1
+methodology, and stop after writing `semantic_invariants.md`. Thorough-mode
+Pass 2, invariant fuzzing, Medusa, depth, verification, scoring, and report
+phases remain follow-on work.
 
 ## Directory Strategy
 
@@ -2120,7 +2159,147 @@ Phase 5 acceptance criteria:
 18. A manual smoke test can produce valid discovery outputs and
     `findings_inventory.md`.
 
-Deferred after Phase 5:
+## Phase 6 Implementation Plan
+
+Phase 6 should implement a single LangGraph semantic invariant phase:
+
+```text
+recon -> instantiate -> breadth -> rescan -> inventory -> invariants
+```
+
+Rationale:
+
+- `invariants` is the canonical semantic invariant pre-computation boundary in
+  `scripts/plamen_types.py`.
+- It should consume inventory and recon-derived state/function maps before
+  depth agents exist in LangGraph.
+- Its output, `semantic_invariants.md`, is a guidance artifact for later depth
+  and fuzzing work; it is not itself a finding inventory or verification
+  result.
+- Light mode intentionally skips semantic invariants. Core and Thorough should
+  run Pass 1 so downstream depth phases eventually have the same baseline
+  semantic map as the legacy path.
+
+Do not implement Thorough Pass 2, invariant fuzzing, Medusa, depth, RAG, chain,
+verification, scoring, or report work in Phase 6. The first Phase 6 target is
+a correct, testable Pass 1 boundary that writes one valid
+`semantic_invariants.md` artifact.
+
+Phase 6 development checklist:
+
+1. Add `invariants` to `SUPPORTED_TARGET_PHASES`.
+2. Add `get_phase("invariants")` support with expected artifact
+   `semantic_invariants.md`, Core/Thorough mode support, and Light-mode
+   rejection.
+3. Add a LangGraph-owned prompt body under `plamen_langgraph/prompts/`, based
+   on `prompts/shared/v2/phase4a5-invariants.md`.
+4. Add `build_invariants_prompt(config)` that wraps the LangGraph-owned
+   methodology with:
+   - project root
+   - scratchpad
+   - pipeline
+   - mode
+   - language
+   - required input artifacts: `findings_inventory.md`, `state_variables.md`,
+     and `function_list.md`
+   - required output artifact: `semantic_invariants.md`
+5. Scope the worker to semantic invariant Pass 1 only:
+   - read recon artifacts, `findings_inventory.md`, `state_variables.md`,
+     `function_list.md`, and referenced target source files as needed
+   - write only `semantic_invariants.md`, `violations.md`, and optional debug
+     notes with `_lg_` prefix
+   - do not write `invariant_fuzz_results.md`, depth, chain, verification,
+     scoring, report, or Pass 2 artifacts
+6. Add `run_invariants_graph()` as a wrapper around
+   `run_graph(config, target_phase="invariants")`.
+7. Extend `build_graph()` so `target_phase = "invariants"` compiles
+   `recon -> instantiate -> breadth -> rescan -> inventory -> invariants`.
+8. Extend `_predecessors_for("invariants")` to require `recon`,
+   `instantiate`, `breadth`, `rescan`, and `inventory`.
+9. Add `invariants` to the CLI with the same common options as `inventory`.
+10. In CLI single-node mode, require or infer a successful `inventory` base run
+    for `invariants`.
+11. Add `INVARIANTS_MIN_BYTES`, `expected_invariants_artifacts()`,
+    `invariants_prerequisite_issues()`, and `forbidden_invariants_artifacts()`
+    in `plamen_langgraph/plamen_lg/artifacts.py`.
+12. Extend `validate_phase_artifacts("invariants", scratchpad, records)` so
+    `semantic_invariants.md` must:
+    - exist and be substantial
+    - include `Main Table`, `Mirror Variable Pairs`,
+      `Time-Weighted Accumulators`, `Semantic Clusters`,
+      `Write Completeness vs Semantic Correctness`, `Read-Site Expectations`,
+      `Write/Read Meaning Drift`, `Branch-Conditioned Formula Inputs`,
+      `Lifecycle Semantics`, and `Refutation Hazards`
+    - include required field labels from those tables
+    - avoid placeholder-only, TODO/TBD, or draft-only output
+13. Teach the graph node to revalidate inventory prerequisites before invoking
+    Codex for `invariants`.
+14. Teach the graph node to record one artifact row for
+    `semantic_invariants.md`.
+15. Update `plamen_langgraph/README.md` to document the `invariants` command,
+    Core/Thorough mode behavior, Light-mode rejection, single-node command
+    shape, and `_lg_invariants_*` debug files.
+16. Add unit tests before manual smoke testing.
+17. Run existing Phase 1-5 tests to prove behavior did not regress.
+
+Phase 6 interface notes:
+
+```bash
+python -m plamen_langgraph.cli invariants /path/to/project --mode core
+python -m plamen_langgraph.cli invariants /path/to/project --mode thorough
+python -m plamen_langgraph.cli invariants /path/to/project \
+  --single-node --base-run-id <id>
+```
+
+Light mode behavior must be explicit. `invariants --mode light` should fail
+before invoking Codex with a clear mode-gate error, and no Light-mode prefix
+should create a semantic invariant phase row.
+
+Prefix-mode Phase 6 does not need additional SQLite tables. It should reuse the
+existing `runs`, `phase_runs`, and `artifacts` tables.
+
+Phase 6 acceptance criteria:
+
+1. `python -m plamen_langgraph.cli recon /path/to/project` still runs only
+   `recon`.
+2. `python -m plamen_langgraph.cli instantiate /path/to/project` still runs
+   `recon -> instantiate`.
+3. `python -m plamen_langgraph.cli breadth /path/to/project` still runs
+   `recon -> instantiate -> breadth`.
+4. `python -m plamen_langgraph.cli rescan /path/to/project --mode core` still
+   runs `recon -> instantiate -> breadth -> rescan`.
+5. `python -m plamen_langgraph.cli inventory /path/to/project --mode core`
+   still runs `recon -> instantiate -> breadth -> rescan -> inventory`.
+6. `python -m plamen_langgraph.cli invariants /path/to/project --mode core`
+   runs
+   `recon -> instantiate -> breadth -> rescan -> inventory -> invariants`.
+7. `python -m plamen_langgraph.cli invariants /path/to/project --mode
+   thorough` also runs the six-node prefix.
+8. `python -m plamen_langgraph.cli invariants /path/to/project --mode light`
+   fails before invoking Codex with a clear mode-gate error.
+9. `python -m plamen_langgraph.cli invariants /path/to/project --mode core
+   --single-node --base-run-id <id>` runs only `invariants` after validating
+   predecessor success and artifacts.
+10. If `recon`, `instantiate`, `breadth`, `rescan`, or `inventory` fails,
+    `invariants` is not executed in prefix mode.
+11. Inventory artifacts are revalidated before invariants work starts.
+12. The invariants gate requires `semantic_invariants.md` to exist, be
+    substantial, and contain the required semantic invariant sections and
+    field labels.
+13. `invariant_fuzz_results.md`, depth, verification, scoring, and report
+    artifacts do not satisfy the invariants gate.
+14. The Core/Thorough prefix run has six successful `phase_runs` rows when all
+    six phases pass.
+15. Invariants artifact rows are recorded with `phase_name = "invariants"` and
+    exact required path `semantic_invariants.md`.
+16. No Pass 2, depth, fuzzing, verification, scoring, or report artifacts are
+    required by Phase 6.
+17. No legacy checkpoint is written.
+18. Unit tests pass with mocked runners.
+19. A manual smoke test can produce valid inventory prerequisites and
+    `semantic_invariants.md`.
+
+Deferred after Phase 6:
 
 - worktree isolation
 - parallel worker policy

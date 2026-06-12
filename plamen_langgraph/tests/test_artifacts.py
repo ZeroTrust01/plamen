@@ -5,13 +5,16 @@ import hashlib
 from plamen_langgraph.plamen_lg import artifacts as artifacts_module
 from plamen_langgraph.plamen_lg.artifacts import (
     BREADTH_MIN_BYTES,
+    INVARIANTS_MIN_BYTES,
     INVENTORY_MIN_BYTES,
     INVENTORY_SOURCE_TOO_LARGE,
     RESCAN_MIN_BYTES,
     check_artifacts,
     expected_breadth_artifacts,
+    expected_invariants_artifacts,
     expected_inventory_artifacts,
     first_pass_breadth_issues,
+    invariants_prerequisite_issues,
     inventory_source_files,
     inventory_source_size_issues,
     validate_phase_artifacts,
@@ -299,6 +302,53 @@ def _valid_inventory_body(source_files: list[str]) -> str:
     )
 
 
+def _valid_invariants_body() -> str:
+    return (
+        "# Semantic Invariants\n\n"
+        "## Main Table\n\n"
+        "| Variable | Contract/Module | Semantic Invariant | Write Sites (with CONDITIONAL annotations) | Value-Changing Functions | Potential Gaps |\n"
+        "|----------|-----------------|--------------------|--------------------------------------------|--------------------------|----------------|\n"
+        "| totalAssets | Vault | totalAssets tracks managed assets | Vault.sol:10 | deposit, withdraw | NONE_DETECTED |\n\n"
+        "## Mirror Variable Pairs\n\n"
+        "| Variable A | Variable B | Same Concept | Functions Writing A Only | Functions Writing B Only | Sync Gaps |\n"
+        "|------------|------------|--------------|--------------------------|--------------------------|-----------|\n"
+        "| totalAssets | cachedAssets | Asset accounting | none | none | NONE_DETECTED |\n\n"
+        "## Time-Weighted Accumulators\n\n"
+        "| Accumulator | Formula Pattern | Controllable Input | Time Source | Unbounded Delta? | Exposure |\n"
+        "|-------------|-----------------|--------------------|-------------|------------------|----------|\n"
+        "| rewardIndex | value * time_delta | stake | block.timestamp | NO | NONE_DETECTED |\n\n"
+        "## Semantic Clusters\n\n"
+        "| Cluster Name | Variables | Lifecycle Functions | Full-Write Functions | Partial-Write Functions |\n"
+        "|--------------|-----------|---------------------|----------------------|-------------------------|\n"
+        "| vault accounting | totalAssets, totalSupply | deposit, withdraw | deposit, withdraw | none |\n\n"
+        "## Write Completeness vs Semantic Correctness\n\n"
+        "| Variable | Write-Site Status | Semantic Status | Basis for Status | Depth Agent Follow-Up |\n"
+        "|----------|-------------------|-----------------|------------------|-----------------------|\n"
+        "| totalAssets | WRITE_SITES_COMPLETE | SEMANTICS_OK | writers and reads align | none |\n\n"
+        "## Read-Site Expectations\n\n"
+        "| Variable | Read Site | Read Context | Expected Meaning | Evidence | Expectation Status |\n"
+        "|----------|-----------|--------------|------------------|----------|--------------------|\n"
+        "| totalAssets | Vault.sol:20 | share price | managed assets | code trace | CLEAR |\n\n"
+        "## Write/Read Meaning Drift\n\n"
+        "| Variable | Write-Side Meaning | Read-Side Expectation | Drift Type | Affected Functions | Suspected Impact |\n"
+        "|----------|--------------------|-----------------------|------------|--------------------|------------------|\n"
+        "| totalAssets | managed assets | managed assets | NONE_DETECTED | none | none |\n\n"
+        "## Branch-Conditioned Formula Inputs\n\n"
+        "| Variable/Formula | Function | Branch Condition | Inputs Used | Inputs Omitted or Changed | Drift/Exposure Flag |\n"
+        "|------------------|----------|------------------|-------------|---------------------------|---------------------|\n"
+        "| totalAssets | deposit | none | amount | none | NONE_DETECTED |\n\n"
+        "## Lifecycle Semantics\n\n"
+        "| Variable | Lifecycle Role | Transition Functions | Expected State Transitions | Missing or Asymmetric Updates | Lifecycle Flag |\n"
+        "|----------|----------------|----------------------|----------------------------|-------------------------------|----------------|\n"
+        "| totalAssets | accumulated | deposit, withdraw | increase/decrease | none | NONE_DETECTED |\n\n"
+        "## Refutation Hazards\n\n"
+        "| Gap or Variable | Why It May Be False Positive | Evidence Needed to Refute | Suggested Depth Check |\n"
+        "|-----------------|--------------------------------|---------------------------|-----------------------|\n"
+        "| totalAssets | no suspected gap | none | none |\n\n"
+        + ("Semantic invariant evidence. " * INVARIANTS_MIN_BYTES)
+    )
+
+
 def test_inventory_source_files_are_authoritative_discovery_set(tmp_path):
     scratch = tmp_path / ".lg_scratchpad"
     _write_inventory_prerequisites(scratch)
@@ -372,4 +422,89 @@ def test_inventory_validator_rejects_legacy_shards_and_later_phase_files(tmp_pat
     assert any("forbidden later-phase or legacy" in issue for issue in issues)
     assert any("inventory_shard_plan.md" in issue for issue in issues)
     assert any("findings_inventory_chunk_a.md" in issue for issue in issues)
+    assert any("verify_core.md" in issue for issue in issues)
+
+
+def _write_invariants_prerequisites(scratch):
+    _write_inventory_prerequisites(scratch)
+    (scratch / "findings_inventory.md").write_text(
+        _valid_inventory_body(inventory_source_files(scratch)),
+        encoding="utf-8",
+    )
+    (scratch / "state_variables.md").write_text(
+        "# State Variables\n\n| Variable | Contract | Meaning |\n|----------|----------|---------|\n| totalAssets | Vault | managed assets |\n",
+        encoding="utf-8",
+    )
+    (scratch / "function_list.md").write_text(
+        "# Function List\n\n| Function | Contract | Purpose |\n|----------|----------|---------|\n| deposit | Vault | add assets |\n",
+        encoding="utf-8",
+    )
+
+
+def test_invariants_prerequisite_issues_require_inventory_and_recon_inputs(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_inventory_prerequisites(scratch)
+
+    issues = invariants_prerequisite_issues(scratch)
+
+    assert any("missing inventory artifact: findings_inventory.md" in issue for issue in issues)
+    assert any("missing invariants input artifact: state_variables.md" in issue for issue in issues)
+    assert any("missing invariants input artifact: function_list.md" in issue for issue in issues)
+
+
+def test_invariants_validator_accepts_structurally_complete_artifact(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_invariants_prerequisites(scratch)
+    (scratch / "semantic_invariants.md").write_text(
+        _valid_invariants_body(),
+        encoding="utf-8",
+    )
+
+    assert expected_invariants_artifacts(scratch) == ["semantic_invariants.md"]
+    assert validate_phase_artifacts("invariants", scratch, []) == []
+
+
+def test_invariants_validator_requires_sections_fields_and_size(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_invariants_prerequisites(scratch)
+    (scratch / "semantic_invariants.md").write_text("too short", encoding="utf-8")
+
+    issues = validate_phase_artifacts("invariants", scratch, [])
+
+    assert any("stub invariants artifact: semantic_invariants.md" in issue for issue in issues)
+
+    (scratch / "semantic_invariants.md").write_text(
+        "# Semantic Invariants\n\n## Main Table\n\nVariable\n"
+        + ("x" * INVARIANTS_MIN_BYTES),
+        encoding="utf-8",
+    )
+
+    issues = validate_phase_artifacts("invariants", scratch, [])
+
+    assert any(
+        "semantic_invariants.md missing required section: Mirror Variable Pairs" in issue
+        for issue in issues
+    )
+    assert any(
+        "semantic_invariants.md missing required field label: Contract/Module" in issue
+        for issue in issues
+    )
+
+
+def test_invariants_validator_rejects_downstream_outputs(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_invariants_prerequisites(scratch)
+    (scratch / "semantic_invariants.md").write_text(
+        _valid_invariants_body(),
+        encoding="utf-8",
+    )
+    (scratch / "invariant_fuzz_results.md").write_text("fuzz", encoding="utf-8")
+    (scratch / "depth_token_flow_findings.md").write_text("depth", encoding="utf-8")
+    (scratch / "verify_core.md").write_text("verify", encoding="utf-8")
+
+    issues = validate_phase_artifacts("invariants", scratch, [])
+
+    assert any("forbidden downstream artifact" in issue for issue in issues)
+    assert any("invariant_fuzz_results.md" in issue for issue in issues)
+    assert any("depth_token_flow_findings.md" in issue for issue in issues)
     assert any("verify_core.md" in issue for issue in issues)

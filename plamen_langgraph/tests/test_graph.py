@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from plamen_langgraph.plamen_lg.config import build_config
 from plamen_langgraph.plamen_lg.artifacts import (
     BREADTH_MIN_BYTES,
+    INVARIANTS_MIN_BYTES,
     INVENTORY_MAX_SOURCE_BYTES,
     INVENTORY_MAX_SOURCE_FILES,
     INVENTORY_MIN_BYTES,
@@ -16,6 +17,7 @@ from plamen_langgraph.plamen_lg.graph import (
     run_breadth_graph,
     run_graph,
     run_instantiate_graph,
+    run_invariants_graph,
     run_inventory_graph,
     run_phase_node,
     run_recon_graph,
@@ -63,6 +65,7 @@ class FakeRunner:
         write_breadth_artifacts: bool = True,
         write_rescan_artifacts: bool = True,
         write_inventory_artifact: bool = True,
+        write_invariants_artifact: bool = True,
         manifest_text: str = VALID_SPAWN_MANIFEST,
         returncodes: dict[str, int] | None = None,
     ) -> None:
@@ -72,13 +75,16 @@ class FakeRunner:
         self.write_breadth_artifacts = write_breadth_artifacts
         self.write_rescan_artifacts = write_rescan_artifacts
         self.write_inventory_artifact = write_inventory_artifact
+        self.write_invariants_artifact = write_invariants_artifact
         self.manifest_text = manifest_text
         self.returncodes = returncodes or {}
         self.calls = []
 
     def run(self, prompt, project_root, scratchpad, output_paths, timeout_s):
         stdout_path = str(output_paths["stdout_path"])
-        if "_lg_inventory_" in stdout_path:
+        if "_lg_invariants_" in stdout_path:
+            phase = "invariants"
+        elif "_lg_inventory_" in stdout_path:
             phase = "inventory"
         elif "_lg_rescan_" in stdout_path:
             phase = "rescan"
@@ -133,6 +139,8 @@ class FakeRunner:
             )
         if phase == "inventory" and self.write_inventory_artifact:
             write_inventory_artifact(output_paths["stdout_path"].parent)
+        if phase == "invariants" and self.write_invariants_artifact:
+            write_invariants_artifact(output_paths["stdout_path"].parent)
         return FakeResult(
             stdout_path=str(output_paths["stdout_path"]),
             stderr_path=str(output_paths["stderr_path"]),
@@ -202,6 +210,60 @@ def inventory_body(source_files: list[str]) -> str:
 def write_inventory_artifact(scratch) -> None:
     (scratch / "findings_inventory.md").write_text(
         inventory_body(inventory_source_files(scratch)),
+        encoding="utf-8",
+    )
+
+
+def invariants_body() -> str:
+    return (
+        "# Semantic Invariants\n\n"
+        "## Main Table\n\n"
+        "| Variable | Contract/Module | Semantic Invariant | Write Sites (with CONDITIONAL annotations) | Value-Changing Functions | Potential Gaps |\n"
+        "|----------|-----------------|--------------------|--------------------------------------------|--------------------------|----------------|\n"
+        "| totalAssets | Vault | totalAssets tracks managed assets | Vault.sol:10 | deposit, withdraw | NONE_DETECTED |\n\n"
+        "## Mirror Variable Pairs\n\n"
+        "| Variable A | Variable B | Same Concept | Functions Writing A Only | Functions Writing B Only | Sync Gaps |\n"
+        "|------------|------------|--------------|--------------------------|--------------------------|-----------|\n"
+        "| totalAssets | cachedAssets | Asset accounting | none | none | NONE_DETECTED |\n\n"
+        "## Time-Weighted Accumulators\n\n"
+        "| Accumulator | Formula Pattern | Controllable Input | Time Source | Unbounded Delta? | Exposure |\n"
+        "|-------------|-----------------|--------------------|-------------|------------------|----------|\n"
+        "| rewardIndex | value * time_delta | stake | block.timestamp | NO | NONE_DETECTED |\n\n"
+        "## Semantic Clusters\n\n"
+        "| Cluster Name | Variables | Lifecycle Functions | Full-Write Functions | Partial-Write Functions |\n"
+        "|--------------|-----------|---------------------|----------------------|-------------------------|\n"
+        "| vault accounting | totalAssets, totalSupply | deposit, withdraw | deposit, withdraw | none |\n\n"
+        "## Write Completeness vs Semantic Correctness\n\n"
+        "| Variable | Write-Site Status | Semantic Status | Basis for Status | Depth Agent Follow-Up |\n"
+        "|----------|-------------------|-----------------|------------------|-----------------------|\n"
+        "| totalAssets | WRITE_SITES_COMPLETE | SEMANTICS_OK | writers and reads align | none |\n\n"
+        "## Read-Site Expectations\n\n"
+        "| Variable | Read Site | Read Context | Expected Meaning | Evidence | Expectation Status |\n"
+        "|----------|-----------|--------------|------------------|----------|--------------------|\n"
+        "| totalAssets | Vault.sol:20 | share price | managed assets | code trace | CLEAR |\n\n"
+        "## Write/Read Meaning Drift\n\n"
+        "| Variable | Write-Side Meaning | Read-Side Expectation | Drift Type | Affected Functions | Suspected Impact |\n"
+        "|----------|--------------------|-----------------------|------------|--------------------|------------------|\n"
+        "| totalAssets | managed assets | managed assets | NONE_DETECTED | none | none |\n\n"
+        "## Branch-Conditioned Formula Inputs\n\n"
+        "| Variable/Formula | Function | Branch Condition | Inputs Used | Inputs Omitted or Changed | Drift/Exposure Flag |\n"
+        "|------------------|----------|------------------|-------------|---------------------------|---------------------|\n"
+        "| totalAssets | deposit | none | amount | none | NONE_DETECTED |\n\n"
+        "## Lifecycle Semantics\n\n"
+        "| Variable | Lifecycle Role | Transition Functions | Expected State Transitions | Missing or Asymmetric Updates | Lifecycle Flag |\n"
+        "|----------|----------------|----------------------|----------------------------|-------------------------------|----------------|\n"
+        "| totalAssets | accumulated | deposit, withdraw | increase/decrease | none | NONE_DETECTED |\n\n"
+        "## Refutation Hazards\n\n"
+        "| Gap or Variable | Why It May Be False Positive | Evidence Needed to Refute | Suggested Depth Check |\n"
+        "|-----------------|--------------------------------|---------------------------|-----------------------|\n"
+        "| totalAssets | no suspected gap | none | none |\n\n"
+        + ("Semantic invariant evidence. " * INVARIANTS_MIN_BYTES)
+    )
+
+
+def write_invariants_artifact(scratch) -> None:
+    (scratch / "semantic_invariants.md").write_text(
+        invariants_body(),
         encoding="utf-8",
     )
 
@@ -976,6 +1038,53 @@ def test_single_node_inventory_uses_successful_rescan_base_run(tmp_path):
     assert phases == [{"phase_name": "inventory"}]
 
 
+def test_single_node_inventory_infers_latest_successful_rescan_run_chain(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    seed_base_run(config, "instantiate-run", ["recon", "instantiate"])
+    seed_base_run(
+        config,
+        "breadth-run",
+        ["breadth"],
+        base_run_id="instantiate-run",
+        execution_mode="single_node",
+    )
+    seed_base_run(
+        config,
+        "rescan-run",
+        ["rescan"],
+        base_run_id="breadth-run",
+        execution_mode="single_node",
+    )
+    runner = FakeRunner(write_artifacts=False, write_instantiate_artifact=False)
+
+    state = run_phase_node(config, "inventory", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["execution_mode"] == "single_node"
+    assert state["base_run_id"] == "rescan-run"
+    assert [call["phase"] for call in runner.calls] == ["inventory"]
+
+    store = StateStore(config.db_path)
+    run = store.fetch_one(
+        "select phase, execution_mode, base_run_id, status from runs where id = ?",
+        (state["run_id"],),
+    )
+
+    assert run == {
+        "phase": "inventory",
+        "execution_mode": "single_node",
+        "base_run_id": "rescan-run",
+        "status": "succeeded",
+    }
+
+
 def test_single_node_inventory_requires_successful_rescan_and_artifacts(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
@@ -1062,3 +1171,254 @@ def test_inventory_source_byte_limit_fails_before_runner(tmp_path):
     )
     assert runner.calls == []
     assert not (scratch / "_lg_inventory_prompt.md").exists()
+
+
+def test_mocked_invariants_runs_full_prefix_in_core_mode(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    runner = FakeRunner(write_artifacts=True, write_instantiate_artifact=True)
+
+    state = run_invariants_graph(config, runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["completed_phases"] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "invariants",
+    ]
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "invariants",
+    ]
+    scratch = project / ".lg_scratchpad"
+    assert (scratch / "_lg_invariants_prompt.md").exists()
+    assert (scratch / "semantic_invariants.md").exists()
+    assert not (scratch / "_v2_checkpoint.json").exists()
+    assert not (project / ".scratchpad").exists()
+
+    store = StateStore(config.db_path)
+    run = store.fetch_one(
+        "select phase, execution_mode, base_run_id, status from runs where id = ?",
+        (state["run_id"],),
+    )
+    phases = store.fetch_all(
+        "select phase_name, status from phase_runs where run_id = ? order by started_at",
+        (state["run_id"],),
+    )
+    invariants_artifacts = store.fetch_all(
+        "select phase_name, path, [exists] from artifacts "
+        "where run_id = ? and phase_name = 'invariants'",
+        (state["run_id"],),
+    )
+
+    assert run == {
+        "phase": "invariants",
+        "execution_mode": "prefix",
+        "base_run_id": None,
+        "status": "succeeded",
+    }
+    assert phases == [
+        {"phase_name": "recon", "status": "succeeded"},
+        {"phase_name": "instantiate", "status": "succeeded"},
+        {"phase_name": "breadth", "status": "succeeded"},
+        {"phase_name": "rescan", "status": "succeeded"},
+        {"phase_name": "inventory", "status": "succeeded"},
+        {"phase_name": "invariants", "status": "succeeded"},
+    ]
+    assert len(invariants_artifacts) == 1
+    assert invariants_artifacts[0]["phase_name"] == "invariants"
+    assert invariants_artifacts[0]["path"].endswith("semantic_invariants.md")
+    assert invariants_artifacts[0]["exists"] == 1
+
+
+def test_invariants_runs_full_prefix_in_thorough_mode(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="thorough")
+    runner = FakeRunner(write_artifacts=True, write_instantiate_artifact=True)
+
+    state = run_graph(config, target_phase="invariants", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "invariants",
+    ]
+
+
+def test_invariants_light_mode_fails_before_runner_and_phase_rows(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="light")
+    runner = FakeRunner(write_artifacts=True, write_instantiate_artifact=True)
+
+    state = run_graph(config, target_phase="invariants", runner=runner)
+
+    assert state["status"] == "failed"
+    assert state["failed_phase"] == "invariants"
+    assert "unavailable in light mode" in (state["error"] or "")
+    assert runner.calls == []
+
+    assert not (project / ".lg_scratchpad" / "plamen_lg.sqlite").exists()
+
+
+def test_invariants_is_skipped_when_inventory_fails(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    runner = FakeRunner(
+        write_artifacts=True,
+        write_instantiate_artifact=True,
+        write_breadth_artifacts=True,
+        write_rescan_artifacts=True,
+        write_inventory_artifact=False,
+    )
+
+    state = run_graph(config, target_phase="invariants", runner=runner)
+
+    assert state["status"] == "failed"
+    assert state["failed_phase"] == "inventory"
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+    ]
+
+
+def test_invariants_fails_when_output_missing(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    runner = FakeRunner(
+        write_artifacts=True,
+        write_instantiate_artifact=True,
+        write_breadth_artifacts=True,
+        write_rescan_artifacts=True,
+        write_inventory_artifact=True,
+        write_invariants_artifact=False,
+    )
+
+    state = run_invariants_graph(config, runner=runner)
+
+    assert state["status"] == "failed"
+    assert state["failed_phase"] == "invariants"
+    assert "missing invariants artifact: semantic_invariants.md" in (state["error"] or "")
+
+
+def test_single_node_invariants_uses_successful_inventory_base_run(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    write_inventory_artifact(scratch)
+    seed_base_run(
+        config,
+        "base-run",
+        ["recon", "instantiate", "breadth", "rescan", "inventory"],
+    )
+    runner = FakeRunner(write_artifacts=False, write_instantiate_artifact=False)
+
+    state = run_phase_node(config, "invariants", base_run_id="base-run", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["execution_mode"] == "single_node"
+    assert state["base_run_id"] == "base-run"
+    assert [call["phase"] for call in runner.calls] == ["invariants"]
+
+    store = StateStore(config.db_path)
+    run = store.fetch_one(
+        "select phase, execution_mode, base_run_id, status from runs where id = ?",
+        (state["run_id"],),
+    )
+    phases = store.fetch_all(
+        "select phase_name from phase_runs where run_id = ?",
+        (state["run_id"],),
+    )
+
+    assert run == {
+        "phase": "invariants",
+        "execution_mode": "single_node",
+        "base_run_id": "base-run",
+        "status": "succeeded",
+    }
+    assert phases == [{"phase_name": "invariants"}]
+
+
+def test_single_node_invariants_infers_latest_successful_inventory_run_chain(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    write_inventory_artifact(scratch)
+    seed_base_run(config, "instantiate-run", ["recon", "instantiate"])
+    seed_base_run(
+        config,
+        "breadth-run",
+        ["breadth"],
+        base_run_id="instantiate-run",
+        execution_mode="single_node",
+    )
+    seed_base_run(
+        config,
+        "rescan-run",
+        ["rescan"],
+        base_run_id="breadth-run",
+        execution_mode="single_node",
+    )
+    seed_base_run(
+        config,
+        "inventory-run",
+        ["inventory"],
+        base_run_id="rescan-run",
+        execution_mode="single_node",
+    )
+    runner = FakeRunner(write_artifacts=False, write_instantiate_artifact=False)
+
+    state = run_phase_node(config, "invariants", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["execution_mode"] == "single_node"
+    assert state["base_run_id"] == "inventory-run"
+    assert [call["phase"] for call in runner.calls] == ["invariants"]
+
+
+def test_single_node_invariants_requires_successful_inventory_and_artifacts(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    seed_base_run(config, "base-run", ["recon", "instantiate", "breadth", "rescan"])
+    runner = FakeRunner()
+
+    state = run_phase_node(config, "invariants", base_run_id="base-run", runner=runner)
+
+    assert state["status"] == "failed"
+    assert "successful inventory" in (state["error"] or "")
+    assert "missing inventory artifact: findings_inventory.md" in (state["error"] or "")
+    assert runner.calls == []

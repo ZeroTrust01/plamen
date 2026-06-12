@@ -86,6 +86,14 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     add_common_options(inventory)
+    invariants = sub.add_parser(
+        "invariants",
+        help=(
+            "Run the supported semantic invariants graph prefix: "
+            "recon -> instantiate -> breadth -> rescan -> inventory -> invariants."
+        ),
+    )
+    add_common_options(invariants)
     return parser
 
 
@@ -101,8 +109,6 @@ def main(argv: list[str] | None = None) -> int:
     _suppress_known_dependency_warnings()
     parser = _build_parser()
     args = parser.parse_args(argv)
-    if args.command == "inventory" and args.single_node and not args.base_run_id:
-        parser.error("inventory single-node mode requires --base-run-id")
 
     config = build_config(
         project_root=args.project_root,

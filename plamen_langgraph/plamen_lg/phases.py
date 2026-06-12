@@ -7,6 +7,7 @@ from typing import Any
 
 from .artifacts import (
     BREADTH_MIN_BYTES,
+    INVARIANTS_MIN_BYTES,
     INVENTORY_MAX_SOURCE_BYTES,
     INVENTORY_MAX_SOURCE_FILES,
     INVENTORY_MIN_BYTES,
@@ -163,6 +164,14 @@ def get_phase(name: str, pipeline: str = "sc") -> Any:
             base_timeout_s=3600,
             critical=True,
         )
+    if name == "invariants":
+        return SimplePhase(
+            name="invariants",
+            section_markers=["LangGraph invariants"],
+            expected_artifacts=["semantic_invariants.md"],
+            base_timeout_s=4800,
+            critical=False,
+        )
     phases = _load_sc_phases()
     if phases:
         for phase in phases:
@@ -208,6 +217,10 @@ def _read_phase4_methodology() -> str:
 
 def _read_inventory_methodology() -> str:
     return _langgraph_prompt_path("phase5-inventory.md").read_text(encoding="utf-8")
+
+
+def _read_invariants_methodology() -> str:
+    return _langgraph_prompt_path("phase6-invariants.md").read_text(encoding="utf-8")
 
 
 def build_recon_prompt(config: dict[str, Any]) -> str:
@@ -698,6 +711,60 @@ concise summary:
 """
 
 
+def build_invariants_prompt(config: dict[str, Any]) -> str:
+    """Build a direct-execution prompt for semantic invariant Pass 1."""
+    methodology = _read_invariants_methodology().strip()
+    project_root = _none_if_blank(config.get("project_root"))
+    scratchpad = _none_if_blank(config.get("scratchpad"))
+    db_path = _none_if_blank(config.get("db_path"))
+    language = _none_if_blank(config.get("language", "evm"))
+    mode = _none_if_blank(config.get("mode", "core"))
+    pipeline = _none_if_blank(config.get("pipeline", "sc"))
+
+    return f"""# Plamen LangGraph Invariants Direct-Execution Prompt
+
+You are running only the `invariants` phase of Plamen's smart-contract audit
+pipeline. This prompt is generated directly by `plamen_langgraph`; use the
+invariants methodology below only to perform semantic invariant Pass 1 and
+write one canonical `semantic_invariants.md`.
+
+## Configuration
+
+- Project root: `{project_root}`
+- Scratchpad: `{scratchpad}`
+- LangGraph database: `{db_path}`
+- Pipeline: `{pipeline}`
+- Mode: `{mode}`
+- Language: `{language}`
+- Required input artifacts: `findings_inventory.md`, `state_variables.md`, `function_list.md`
+- Required output artifact: `semantic_invariants.md`
+- Invariants minimum output size: `{INVARIANTS_MIN_BYTES}` bytes
+
+## Hard Scope
+
+1. Execute semantic invariant Pass 1 only. Do not execute Thorough Pass 2.
+2. This phase runs only in Core and Thorough modes. If the configured mode is
+   `light`, stop and report that semantic invariants are unavailable in Light
+   mode.
+3. Do not call Task, launch subagents, or delegate work to other workers.
+4. Read recon artifacts, `findings_inventory.md`, `state_variables.md`,
+   `function_list.md`, and referenced target source files as needed.
+5. Write only `semantic_invariants.md`, `violations.md`, and optional `_lg_`
+   debug notes under the scratchpad.
+6. Do not write `invariant_fuzz_results.md`, `semantic_invariants_p2.md`,
+   depth, chain, verification, scoring, report, or any Pass 2 artifact.
+7. Do not edit target source files, dependency manifests, git metadata, legacy
+   `.scratchpad`, or `_v2_checkpoint.json`.
+8. Do not add new findings to `findings_inventory.md`. Already-inventoried
+   findings are context for prioritizing invariant gaps, not outputs to
+   duplicate.
+
+## Invariants Methodology
+
+{methodology}
+"""
+
+
 def build_phase_prompt(
     name: str,
     config: dict[str, Any],
@@ -713,6 +780,8 @@ def build_phase_prompt(
         return build_rescan_prompt(config)
     if name == "inventory":
         return build_inventory_prompt(config)
+    if name == "invariants":
+        return build_invariants_prompt(config)
     raise ValueError(f"unsupported LangGraph phase: {name}")
 
 

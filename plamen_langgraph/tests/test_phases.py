@@ -5,6 +5,7 @@ from plamen_langgraph.plamen_lg.config import build_config
 from plamen_langgraph.plamen_lg.phases import (
     build_breadth_prompt,
     build_instantiate_prompt,
+    build_invariants_prompt,
     build_inventory_prompt,
     build_recon_prompt,
     build_rescan_prompt,
@@ -50,6 +51,27 @@ def test_inventory_methodology_is_langgraph_owned():
         encoding="utf-8"
     )
     assert phase_module._read_inventory_methodology() != shared_path.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_invariants_methodology_is_langgraph_owned():
+    langgraph_path = phase_module._langgraph_prompt_path("phase6-invariants.md")
+    shared_path = (
+        phase_module._repo_root()
+        / "prompts"
+        / "shared"
+        / "v2"
+        / "phase4a5-invariants.md"
+    )
+
+    assert "plamen_langgraph/prompts" in langgraph_path.as_posix()
+    assert langgraph_path.exists()
+    assert shared_path.exists()
+    assert phase_module._read_invariants_methodology() == langgraph_path.read_text(
+        encoding="utf-8"
+    )
+    assert phase_module._read_invariants_methodology() != shared_path.read_text(
         encoding="utf-8"
     )
 
@@ -244,4 +266,34 @@ def test_langgraph_inventory_prompt_uses_single_phase_methodology(tmp_path):
     assert "Do not write `findings_inventory_chunk_*.md`" in prompt
     assert "Do not run semantic invariants, depth, RAG, chain" in prompt
     assert "Do not call Task, launch subagents" in prompt
+    assert "_v2_checkpoint.json" in prompt
+
+
+def test_invariants_phase_metadata_is_langgraph_owned():
+    phase = get_phase("invariants", "sc")
+
+    assert phase.name == "invariants"
+    assert phase.section_markers == ["LangGraph invariants"]
+    assert expected_phase_artifacts("invariants") == ["semantic_invariants.md"]
+    assert phase.critical is False
+
+
+def test_langgraph_invariants_prompt_uses_pass1_methodology(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, language="evm", mode="core").to_dict()
+
+    prompt = build_invariants_prompt(config)
+
+    assert prompt.startswith("# Plamen LangGraph Invariants Direct-Execution Prompt")
+    assert "LangGraph Invariants: Semantic Invariant Pass 1" in prompt
+    assert "Required output artifact: `semantic_invariants.md`" in prompt
+    assert "Execute semantic invariant Pass 1 only" in prompt
+    assert "Do not execute Thorough Pass 2" in prompt
+    assert "Do not call Task, launch subagents" in prompt
+    assert "Write only `semantic_invariants.md`, `violations.md`" in prompt
+    assert "Do not write `invariant_fuzz_results.md`" in prompt
+    assert "findings_inventory.md" in prompt
+    assert "state_variables.md" in prompt
+    assert "function_list.md" in prompt
     assert "_v2_checkpoint.json" in prompt

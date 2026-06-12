@@ -9,6 +9,7 @@ from typing import Any
 BREADTH_MIN_BYTES = 200
 RESCAN_MIN_BYTES = 200
 INVENTORY_MIN_BYTES = 200
+INVARIANTS_MIN_BYTES = 200
 INVENTORY_MAX_SOURCE_FILES = 40
 INVENTORY_MAX_SOURCE_BYTES = 512_000
 INVENTORY_SOURCE_TOO_LARGE = (
@@ -460,6 +461,11 @@ def expected_inventory_artifacts(scratchpad: str | Path) -> list[str]:
     return ["findings_inventory.md"]
 
 
+def expected_invariants_artifacts(scratchpad: str | Path) -> list[str]:
+    del scratchpad
+    return ["semantic_invariants.md"]
+
+
 def forbidden_inventory_artifacts(scratchpad: str | Path) -> list[str]:
     root = Path(scratchpad)
     if not root.exists():
@@ -501,6 +507,48 @@ def forbidden_inventory_artifacts(scratchpad: str | Path) -> list[str]:
             forbidden.append(name)
             continue
         if re.fullmatch(r"inventory_chunk_[A-Za-z0-9_.-]+\.manifest\.md", name):
+            forbidden.append(name)
+            continue
+        if any(name.startswith(prefix) for prefix in downstream_prefixes):
+            forbidden.append(name)
+    return sorted(set(forbidden))
+
+
+def forbidden_invariants_artifacts(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    if not root.exists():
+        return []
+    forbidden: list[str] = []
+    downstream_prefixes = (
+        "depth_",
+        "chain_",
+        "verify_",
+        "verification_",
+        "score",
+        "report_",
+        "rag_",
+        "medusa_",
+    )
+    forbidden_exact = {
+        "AUDIT_REPORT.md",
+        "confidence_scores.md",
+        "findings_inventory_deduped.md",
+        "hypotheses.md",
+        "chain_hypotheses.md",
+        "invariant_fuzz_results.md",
+        "semantic_invariants_p2.md",
+        "invariants_p2.md",
+        "variable_finding_map.md",
+    }
+    for path in root.glob("*.md"):
+        if not path.is_file():
+            continue
+        name = path.name
+        if name in {"semantic_invariants.md", "violations.md"}:
+            continue
+        if name.startswith("_lg_"):
+            continue
+        if name in forbidden_exact:
             forbidden.append(name)
             continue
         if any(name.startswith(prefix) for prefix in downstream_prefixes):
@@ -629,6 +677,92 @@ def _inventory_structure_issues(scratchpad: str | Path) -> list[str]:
     return issues
 
 
+def invariants_prerequisite_issues(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    issues = rescan_prerequisite_issues(root)
+    issues.extend(inventory_source_size_issues(root))
+    issues.extend(_inventory_structure_issues(root))
+
+    for name in ("state_variables.md", "function_list.md"):
+        path = root / name
+        if not path.exists():
+            issues.append(f"missing invariants input artifact: {name}")
+        elif path.stat().st_size < 50:
+            issues.append(f"stub invariants input artifact: {name} (<50 bytes)")
+    return issues
+
+
+def _invariants_structure_issues(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    path = root / "semantic_invariants.md"
+    if not path.exists():
+        return ["missing invariants artifact: semantic_invariants.md"]
+    if path.stat().st_size < INVARIANTS_MIN_BYTES:
+        return [
+            "stub invariants artifact: semantic_invariants.md "
+            f"(<{INVARIANTS_MIN_BYTES} bytes)"
+        ]
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    issues: list[str] = []
+    required_sections = [
+        "Main Table",
+        "Mirror Variable Pairs",
+        "Time-Weighted Accumulators",
+        "Semantic Clusters",
+        "Write Completeness vs Semantic Correctness",
+        "Read-Site Expectations",
+        "Write/Read Meaning Drift",
+        "Branch-Conditioned Formula Inputs",
+        "Lifecycle Semantics",
+        "Refutation Hazards",
+    ]
+    for section in required_sections:
+        if not _has_markdown_section(text, section):
+            issues.append(f"semantic_invariants.md missing required section: {section}")
+
+    required_labels = [
+        "Variable",
+        "Contract/Module",
+        "Semantic Invariant",
+        "Write Sites",
+        "Value-Changing Functions",
+        "Potential Gaps",
+        "Variable A",
+        "Variable B",
+        "Same Concept",
+        "Sync Gaps",
+        "Accumulator",
+        "Formula Pattern",
+        "Controllable Input",
+        "Cluster Name",
+        "Lifecycle Functions",
+        "Write-Site Status",
+        "Semantic Status",
+        "Depth Agent Follow-Up",
+        "Read Site",
+        "Read Context",
+        "Expected Meaning",
+        "Drift Type",
+        "Branch Condition",
+        "Inputs Used",
+        "Lifecycle Role",
+        "Transition Functions",
+        "Gap or Variable",
+        "Suggested Depth Check",
+    ]
+    normalized = text.lower()
+    for label in required_labels:
+        if label.lower() not in normalized:
+            issues.append(
+                f"semantic_invariants.md missing required field label: {label}"
+            )
+
+    if re.search(r"(?i)\b(?:TODO|TBD|PLACEHOLDER)\b|draft-only", text):
+        issues.append("semantic_invariants.md contains placeholder marker")
+    return issues
+
+
 def validate_phase_artifacts(
     phase_name: str,
     scratchpad: str | Path,
@@ -686,6 +820,17 @@ def validate_phase_artifacts(
         if forbidden:
             issues.append(
                 "inventory phase wrote forbidden later-phase or legacy artifact(s): "
+                + ", ".join(forbidden[:12])
+            )
+        return issues
+    if phase_name == "invariants":
+        root = Path(scratchpad)
+        issues = invariants_prerequisite_issues(root)
+        issues.extend(_invariants_structure_issues(root))
+        forbidden = forbidden_invariants_artifacts(root)
+        if forbidden:
+            issues.append(
+                "invariants phase wrote forbidden downstream artifact(s): "
                 + ", ".join(forbidden[:12])
             )
         return issues

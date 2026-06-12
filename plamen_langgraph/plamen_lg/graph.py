@@ -10,8 +10,10 @@ from .artifacts import (
     breadth_open_outputs,
     check_artifacts,
     expected_breadth_artifacts,
+    expected_invariants_artifacts,
     expected_inventory_artifacts,
     first_pass_breadth_issues,
+    invariants_prerequisite_issues,
     inventory_source_size_issues,
     rescan_prerequisite_issues,
     validate_phase_artifacts,
@@ -31,7 +33,14 @@ except ImportError:  # pragma: no cover - exercised only when dependency is abse
     StateGraph = None
 
 
-SUPPORTED_TARGET_PHASES = {"recon", "instantiate", "breadth", "rescan", "inventory"}
+SUPPORTED_TARGET_PHASES = {
+    "recon",
+    "instantiate",
+    "breadth",
+    "rescan",
+    "inventory",
+    "invariants",
+}
 
 
 def _output_paths(scratchpad: str | Path, phase_name: str) -> dict[str, Path]:
@@ -78,6 +87,8 @@ def _predecessors_for(phase_name: str) -> list[str]:
         return ["recon", "instantiate", "breadth"]
     if phase_name == "inventory":
         return ["recon", "instantiate", "breadth", "rescan"]
+    if phase_name == "invariants":
+        return ["recon", "instantiate", "breadth", "rescan", "inventory"]
     raise ValueError(f"unsupported target phase: {phase_name}")
 
 
@@ -87,7 +98,8 @@ def _direct_predecessor_for(phase_name: str) -> str | None:
 
 
 def _mode_gate_error(phase_name: str, mode: str) -> str | None:
-    del phase_name, mode
+    if phase_name == "invariants" and mode == "light":
+        return "invariants phase is unavailable in light mode; use core or thorough"
     return None
 
 
@@ -276,6 +288,31 @@ def _make_phase_node(
                     next_state["failed_phase"] = phase_name
                     return next_state  # type: ignore[return-value]
 
+            if phase_name == "invariants":
+                expected_artifacts = expected_invariants_artifacts(scratchpad)
+                preflight_issues = invariants_prerequisite_issues(scratchpad)
+                if preflight_issues:
+                    artifacts = check_artifacts(scratchpad, expected_artifacts)
+                    store.record_artifacts(
+                        state["run_id"],
+                        phase_name,
+                        artifacts["records"],
+                    )
+                    error = "; ".join(_dedupe_issues(preflight_issues))
+                    store.update_phase_run(
+                        phase_run_id,
+                        "failed",
+                        finished_at=utc_now(),
+                        error=error,
+                    )
+                    store.update_run_status(state["run_id"], "failed")
+                    next_state = dict(state)
+                    next_state["current_phase"] = phase_name
+                    next_state["status"] = "failed"
+                    next_state["error"] = error
+                    next_state["failed_phase"] = phase_name
+                    return next_state  # type: ignore[return-value]
+
             prompt = build_phase_prompt(
                 phase_name,
                 dict(state),
@@ -297,6 +334,8 @@ def _make_phase_node(
                 expected_artifacts = expected_breadth_artifacts(scratchpad)
             if phase_name == "inventory":
                 expected_artifacts = expected_inventory_artifacts(scratchpad)
+            if phase_name == "invariants":
+                expected_artifacts = expected_invariants_artifacts(scratchpad)
             artifacts = check_artifacts(scratchpad, expected_artifacts)
             store.record_artifacts(state["run_id"], phase_name, artifacts["records"])
             validation_issues = validate_phase_artifacts(
@@ -382,14 +421,16 @@ def build_graph(
         raise ValueError(f"unsupported target phase: {target_phase}")
     recon_node = _make_phase_node("recon", runner, timeout_s)
     nodes = [("recon", recon_node)]
-    if target_phase in {"instantiate", "breadth", "rescan", "inventory"}:
+    if target_phase in {"instantiate", "breadth", "rescan", "inventory", "invariants"}:
         nodes.append(("instantiate", _make_phase_node("instantiate", runner, timeout_s)))
-    if target_phase in {"breadth", "rescan", "inventory"}:
+    if target_phase in {"breadth", "rescan", "inventory", "invariants"}:
         nodes.append(("breadth", _make_phase_node("breadth", runner, timeout_s)))
-    if target_phase in {"rescan", "inventory"}:
+    if target_phase in {"rescan", "inventory", "invariants"}:
         nodes.append(("rescan", _make_phase_node("rescan", runner, timeout_s)))
-    if target_phase == "inventory":
+    if target_phase in {"inventory", "invariants"}:
         nodes.append(("inventory", _make_phase_node("inventory", runner, timeout_s)))
+    if target_phase == "invariants":
+        nodes.append(("invariants", _make_phase_node("invariants", runner, timeout_s)))
     if StateGraph is None:
         return _SequentialGraph([node for _name, node in nodes])
 
@@ -397,7 +438,14 @@ def build_graph(
     for name, node in nodes:
         graph.add_node(name, node)
     graph.add_edge(START, "recon")
-    if target_phase == "inventory":
+    if target_phase == "invariants":
+        graph.add_edge("recon", "instantiate")
+        graph.add_edge("instantiate", "breadth")
+        graph.add_edge("breadth", "rescan")
+        graph.add_edge("rescan", "inventory")
+        graph.add_edge("inventory", "invariants")
+        graph.add_edge("invariants", END)
+    elif target_phase == "inventory":
         graph.add_edge("recon", "instantiate")
         graph.add_edge("instantiate", "breadth")
         graph.add_edge("breadth", "rescan")
@@ -502,6 +550,10 @@ def run_rescan_graph(config: AuditConfig, runner: Any | None = None) -> AuditSta
 
 def run_inventory_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
     return run_graph(config, target_phase="inventory", runner=runner)
+
+
+def run_invariants_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
+    return run_graph(config, target_phase="invariants", runner=runner)
 
 
 def _same_resolved_path(left: str, right: str) -> bool:
@@ -645,10 +697,12 @@ def _validate_single_node_prerequisites(
             issues.append(f"base run chain lacks successful {predecessor} phase")
 
     for predecessor in predecessors:
-        if phase_name in {"rescan", "inventory"} and predecessor == "breadth":
+        if phase_name in {"rescan", "inventory", "invariants"} and predecessor == "breadth":
             issues.extend(first_pass_breadth_issues(config.scratchpad))
-        elif phase_name == "inventory" and predecessor == "rescan":
+        elif phase_name in {"inventory", "invariants"} and predecessor == "rescan":
             issues.extend(rescan_prerequisite_issues(config.scratchpad))
+        elif phase_name == "invariants" and predecessor == "inventory":
+            issues.extend(invariants_prerequisite_issues(config.scratchpad))
         else:
             issues.extend(_validate_predecessor_artifacts(predecessor, config.scratchpad))
 
