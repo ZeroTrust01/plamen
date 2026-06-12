@@ -1,4 +1,4 @@
-# Plamen LangGraph Phase 1-4 Refactor Plan
+# Plamen LangGraph Phase 1-5 Refactor Plan
 
 ## Objective
 
@@ -8,8 +8,10 @@ Phase 1 intentionally supports only one phase: `recon`.
 Phase 2 extends the same execution path to the second canonical smart-contract phase: `instantiate`.
 Phase 3 extends the same prefix to the third canonical smart-contract phase:
 `breadth`.
-Phase 4 extends the same prefix to the Thorough-only additional breadth pass:
+Phase 4 extends the same prefix to the mandatory additional breadth pass:
 `rescan`.
+Phase 5 extends the same prefix to a single canonical `inventory` phase that
+consolidates all discovery outputs.
 
 The Phase 1 goal is to prove the new architecture can:
 
@@ -40,9 +42,8 @@ The Phase 3 goal is to prove that the architecture can:
 
 The Phase 4 goal is to prove that the architecture can:
 
-- execute a four-node Thorough-mode graph:
+- execute a four-node all-mode graph:
   `recon -> instantiate -> breadth -> rescan`
-- require `mode = thorough` for `rescan`
 - consume first-pass breadth outputs as an exclusion set
 - produce bounded additional discovery artifacts:
   `analysis_rescan_*.md` and `analysis_percontract_*.md`
@@ -53,6 +54,20 @@ The Phase 4 goal is to prove that the architecture can:
   `recon`, `instantiate`, and `breadth` already succeeded in a referenced
   LangGraph run
 - record rescan artifacts and phase status in SQLite
+- still avoid legacy driver/checkpoint mutation
+
+The Phase 5 goal is to prove that the architecture can:
+
+- execute a five-node graph:
+  `recon -> instantiate -> breadth -> rescan -> inventory`
+- treat `rescan` as a required discovery producer in every mode
+- consolidate first-pass breadth, rescan, and per-contract discovery artifacts
+  into one canonical `findings_inventory.md`
+- fail closed before invoking Codex when the discovery source set is too large
+  for a single inventory phase
+- fail the inventory phase when `findings_inventory.md` is missing, stub, or
+  structurally incomplete
+- record inventory artifacts and phase status in SQLite
 - still avoid legacy driver/checkpoint mutation
 
 ## High-Level Architecture
@@ -124,11 +139,28 @@ new CLI entry
           -> manifest-exact analysis output gate
           -> SQLite state store
       -> rescan phase node
-          -> mode gate: thorough only
           -> first-pass breadth output collector
           -> duplicate/exclusion prompt builder
           -> CodexRunner
           -> rescan/per-contract output gate
+          -> SQLite state store
+      -> end
+```
+
+Phase 5 target shape:
+
+```text
+new CLI entry
+  -> LangGraph graph
+      -> recon phase node
+      -> instantiate phase node
+      -> breadth phase node
+      -> rescan phase node
+      -> inventory phase node
+          -> discovery source collector
+          -> fail-closed source-size gate
+          -> CodexRunner
+          -> findings_inventory.md structural gate
           -> SQLite state store
       -> end
 ```
@@ -151,10 +183,14 @@ parallel worker scheduler. The initial LangGraph breadth node should run as a
 single phase node and may use one Codex subprocess to complete all open
 manifest outputs. Python-level fan-out, per-agent worktrees, and container
 isolation are follow-on work after manifest-exact completion is proven.
-Phase 4 implements the Thorough-only rescan slice without replacing the
-legacy parallel worker scheduler. The initial LangGraph rescan node should run
+Phase 4 implements the mandatory rescan slice without replacing the legacy
+parallel worker scheduler. The initial LangGraph rescan node should run
 as a single phase node and may use one Codex subprocess to complete the bounded
 rescan/per-contract output set.
+Phase 5 deliberately does not port the legacy `inventory_prepare` and
+`inventory_chunk_a/b/c` split. The initial LangGraph inventory node should run
+as one direct phase node and fail closed when the discovery source set is too
+large for a safe single-pass inventory.
 
 ## Directory Strategy
 
@@ -322,10 +358,10 @@ The default `instantiate` and `breadth` commands still execute the full
 supported prefix.
 
 Phase 4 should add a fourth command that runs the supported SC prefix through
-`rescan`:
+`rescan` in every mode:
 
 ```bash
-python -m plamen_langgraph.cli rescan /path/to/project --mode thorough
+python -m plamen_langgraph.cli rescan /path/to/project --mode core
 ```
 
 The `rescan` command must execute all supported nodes in order:
@@ -334,15 +370,14 @@ The `rescan` command must execute all supported nodes in order:
 recon -> instantiate -> breadth -> rescan
 ```
 
-`rescan` is Thorough-only. If `--mode` is `light` or `core`, fail before
-invoking Codex with a clear error. Do not silently skip the requested target
-phase in the experimental LangGraph CLI.
+`rescan` is mandatory for Light, Core, and Thorough. Do not silently skip it
+based on mode in the experimental LangGraph CLI.
 
 Phase 4 should also extend explicit single-node execution:
 
 ```bash
 python -m plamen_langgraph.cli rescan /path/to/project \
-  --mode thorough \
+  --mode core \
   --single-node \
   --base-run-id <successful-breadth-run-id>
 ```
@@ -357,7 +392,7 @@ Fallback direct execution may also be supported:
 python plamen_langgraph/cli.py recon /path/to/project
 python plamen_langgraph/cli.py instantiate /path/to/project
 python plamen_langgraph/cli.py breadth /path/to/project
-python plamen_langgraph/cli.py rescan /path/to/project --mode thorough
+python plamen_langgraph/cli.py rescan /path/to/project --mode core
 ```
 
 Initial options:
@@ -407,15 +442,30 @@ Phase 4 CLI implementation tasks:
    unchanged.
 2. Add `rescan` with the same options as `breadth`.
 3. Route prefix-mode `rescan` to a graph with `target_phase = "rescan"`.
-4. Require `--mode thorough` for both prefix and single-node `rescan`.
+4. Run `rescan` for every supported mode: `light`, `core`, and `thorough`.
 5. Preserve `--single-node` and `--base-run-id` semantics.
 6. In prefix mode, print the same run summary fields: `run_id`, `status`,
    `scratchpad`, and `db`.
 7. In single-node mode, also print `execution_mode: single_node` and
    `base_run_id: <id>`.
 8. Return exit code `0` only when the requested target phase succeeds.
-9. Return a non-zero exit code if mode gating, prerequisite validation, or the
-   target node fails.
+9. Return a non-zero exit code if prerequisite validation or the target node
+   fails.
+
+Phase 5 CLI implementation tasks:
+
+1. Keep the existing `recon`, `instantiate`, `breadth`, and `rescan` command
+   behavior unchanged.
+2. Add `inventory` with the same options as `rescan`.
+3. Route prefix-mode `inventory` to a graph with `target_phase = "inventory"`.
+4. Preserve `--single-node` and `--base-run-id` semantics.
+5. In prefix mode, print the same run summary fields: `run_id`, `status`,
+   `scratchpad`, and `db`.
+6. In single-node mode, also print `execution_mode: single_node` and
+   `base_run_id: <id>`.
+7. Return exit code `0` only when the requested target phase succeeds.
+8. Return a non-zero exit code if prerequisite validation, discovery-size
+   gating, or the inventory node fails.
 
 ## Codex Runner
 
@@ -511,6 +561,7 @@ target_phase = "recon":       START -> recon -> END
 target_phase = "instantiate": START -> recon -> instantiate -> END
 target_phase = "breadth":     START -> recon -> instantiate -> breadth -> END
 target_phase = "rescan":      START -> recon -> instantiate -> breadth -> rescan -> END
+target_phase = "inventory":   START -> recon -> instantiate -> breadth -> rescan -> inventory -> END
 ```
 
 Single-node mode keeps routing deterministic but starts at exactly the requested
@@ -521,21 +572,26 @@ single_node phase = "recon":       START -> recon -> END
 single_node phase = "instantiate": START -> instantiate -> END
 single_node phase = "breadth":     START -> breadth -> END
 single_node phase = "rescan":      START -> rescan -> END
+single_node phase = "inventory":   START -> inventory -> END
 ```
 
-Do not add dynamic branching for later phases in Phase 2, Phase 3, or
-Phase 4. The only conditional behavior should be:
+Do not add dynamic branching for later phases in Phase 2, Phase 3, Phase 4,
+or Phase 5. The only conditional behavior should be:
 
 - `instantiate` returns immediately with failed state if `recon` did not succeed.
 - `breadth` returns immediately with failed state if `instantiate` did not succeed.
-- `rescan` returns immediately with failed state if `breadth` did not succeed
-  or if `mode != "thorough"`.
+- `rescan` returns immediately with failed state if `breadth` did not succeed.
+- `inventory` returns immediately with failed state if `rescan` did not succeed
+  or if the discovery source set exceeds the single-phase inventory threshold.
 - single-node `instantiate` is allowed only when the base run has successful
   `recon` state and valid recon artifacts.
 - single-node `breadth` is allowed only when the base run has successful
   `recon` and `instantiate` state plus valid `spawn_manifest.md`.
 - single-node `rescan` is allowed only when the base run has successful
   `recon`, `instantiate`, and `breadth` state plus valid breadth outputs.
+- single-node `inventory` is allowed only when the base run has successful
+  `recon`, `instantiate`, `breadth`, and `rescan` state plus valid discovery
+  outputs.
 
 ## LangGraph Graph
 
@@ -579,6 +635,18 @@ START
   -> END
 ```
 
+Phase 5 graph shape:
+
+```text
+START
+  -> recon
+  -> instantiate
+  -> breadth
+  -> rescan
+  -> inventory
+  -> END
+```
+
 The implementation can use one graph builder with a `target_phase` argument and
 small wrappers:
 
@@ -587,6 +655,7 @@ run_recon_graph(config, runner=None)
 run_instantiate_graph(config, runner=None)
 run_breadth_graph(config, runner=None)
 run_rescan_graph(config, runner=None)
+run_inventory_graph(config, runner=None)
 run_phase_node(config, phase_name, base_run_id, runner=None)
 ```
 
@@ -600,6 +669,7 @@ Then keep `run_recon_graph()` as a compatibility wrapper for existing tests.
 Add `run_instantiate_graph()` and `run_breadth_graph()` as thin wrappers so
 tests and examples do not need to duplicate target strings.
 Add `run_rescan_graph()` as the same style of thin wrapper for Phase 4.
+Add `run_inventory_graph()` as the same style of thin wrapper for Phase 5.
 Add `run_phase_node()` for explicit single-node execution. It should create a
 new LangGraph run row linked to `base_run_id`, seed `completed_phases` from the
 validated predecessor set, and invoke only the requested phase node.
@@ -662,36 +732,63 @@ The `breadth` node should:
 
 The `rescan` node should:
 
-1. Check that `state["mode"] == "thorough"`.
-2. Check that `state["status"] == "succeeded"` and `breadth` is in
+1. Check that `state["status"] == "succeeded"` and `breadth` is in
    `completed_phases`.
-3. Re-validate `spawn_manifest.md` and every manifest-derived first-pass
+2. Re-validate `spawn_manifest.md` and every manifest-derived first-pass
    breadth output before starting rescan work.
-4. Build the first-pass exclusion set from manifest-derived breadth outputs
+3. Build the first-pass exclusion set from manifest-derived breadth outputs
    only. Do not include prior `analysis_rescan_*.md` or
    `analysis_percontract_*.md` files in the first-pass exclusion set.
-5. Build a deterministic open-output list for the initial LangGraph rescan
+4. Build a deterministic open-output list for the initial LangGraph rescan
    contract:
    - `analysis_rescan_gap_sweep.md`
    - `analysis_rescan_cross_check.md`
    - `analysis_percontract_scope_review.md`
-6. If every required rescan output is already substantial, create and mark the
+5. If every required rescan output is already substantial, create and mark the
    `rescan` `phase_runs` row as `succeeded` without invoking Codex.
-7. Otherwise build a Phase 4 direct-execution prompt and write it to
+6. Otherwise build a Phase 4 direct-execution prompt and write it to
    `_lg_rescan_prompt.md`.
-8. Insert a `phase_runs` row with status `running`.
-9. Call `CodexRunner`.
-10. Re-check every required rescan/per-contract output.
-11. Record one artifact row per required rescan output with
+7. Insert a `phase_runs` row with status `running`.
+8. Call `CodexRunner`.
+9. Re-check every required rescan/per-contract output.
+10. Record one artifact row per required rescan output with
     `phase_name = "rescan"`.
-12. Mark the phase failed if any required output is missing, stub, empty of
+11. Mark the phase failed if any required output is missing, stub, empty of
     substantive findings/coverage notes, or if the worker wrote forbidden
     later-phase artifacts such as inventory, depth, chain, verification, or
     report artifacts.
-13. Update `phase_runs` and parent `runs` to `succeeded`, `failed`, or
+12. Update `phase_runs` and parent `runs` to `succeeded`, `failed`, or
     `timeout`.
-14. Append `rescan` to `completed_phases` only on success.
-15. Return updated state.
+13. Append `rescan` to `completed_phases` only on success.
+14. Return updated state.
+
+The `inventory` node should:
+
+1. Check that `state["status"] == "succeeded"` and `rescan` is in
+   `completed_phases`.
+2. Re-run the breadth and rescan artifact gates before starting inventory work.
+3. Collect discovery source files from the configured LangGraph scratchpad:
+   - manifest-derived first-pass `analysis_*.md`
+   - required and extra `analysis_rescan_*.md`
+   - required and extra `analysis_percontract_*.md`
+4. Fail before invoking Codex if the discovery source set exceeds either
+   single-phase inventory threshold:
+   - file count greater than `INVENTORY_MAX_SOURCE_FILES`
+   - total source bytes greater than `INVENTORY_MAX_SOURCE_BYTES`
+5. Build a Phase 5 direct-execution prompt and write it to
+   `_lg_inventory_prompt.md`.
+6. Insert a `phase_runs` row with status `running`.
+7. Call `CodexRunner`.
+8. Re-check `findings_inventory.md`.
+9. Record one artifact row for `findings_inventory.md` with
+   `phase_name = "inventory"`.
+10. Mark the phase failed if `findings_inventory.md` is missing, stub,
+    structurally incomplete, or if the worker wrote forbidden later-phase
+    artifacts such as depth, chain, verification, or report artifacts.
+11. Update `phase_runs` and parent `runs` to `succeeded`, `failed`, or
+    `timeout`.
+12. Append `inventory` to `completed_phases` only on success.
+13. Return updated state.
 
 Single-node prerequisite validation should run before constructing the graph:
 
@@ -702,12 +799,15 @@ Single-node prerequisite validation should run before constructing the graph:
    - `instantiate` requires `recon`
    - `breadth` requires `recon` and `instantiate`
    - `rescan` requires `recon`, `instantiate`, and `breadth`
+   - `inventory` requires `recon`, `instantiate`, `breadth`, and `rescan`
 4. Re-run artifact gates for predecessor outputs instead of trusting only DB
    status:
    - `recon`: required recon artifacts exist and pass recon validation
    - `instantiate`: `spawn_manifest.md` exists and passes the schema gate
    - `breadth`: `spawn_manifest.md` is valid and manifest-derived
      `analysis_*.md` outputs exist and pass the breadth gate
+   - `rescan`: required `analysis_rescan_*.md` and
+     `analysis_percontract_*.md` outputs exist and pass the rescan gate
 5. Fail before invoking Codex if any prerequisite check fails.
 6. Create a new run row with `execution_mode = "single_node"` and
    `base_run_id = <base-run-id>`.
@@ -778,7 +878,7 @@ Phase 3 prompt requirements:
      `violations.md`, and optional debug notes with `_lg_` prefix
    - do not write `analysis_rescan_*.md`, `analysis_percontract_*.md`,
      inventory, depth, chain, verification, scoring, or report artifacts
-   - do not proceed to `inventory_prepare` or inventory synthesis
+   - do not proceed to inventory synthesis
 5. Tell the worker that `spawn_manifest.md` is authoritative. It must not invent
    additional output filenames, count non-manifest analysis files as complete,
    or treat the manifest `Status` column as authoritative over filesystem
@@ -837,6 +937,39 @@ The Phase 4 direct-execution wrapper may reuse the shared V2 rescan body, but
 it must override legacy-driver-only assumptions. The LangGraph contract is
 bounded additional artifact completion under `.lg_scratchpad`, not legacy
 checkpoint progression.
+
+Phase 5 prompt requirements:
+
+1. Add `build_inventory_prompt(config, source_files=None)` in
+   `plamen_langgraph/plamen_lg/phases.py`.
+2. Load `prompts/shared/v2/phase4a-inventory-base.md` from the Plamen
+   installation root as the methodology body.
+3. Wrap that methodology in a LangGraph direct-execution prompt that provides:
+   - project root
+   - scratchpad
+   - pipeline
+   - mode
+   - language
+   - exact discovery source file list
+   - required output artifact: `findings_inventory.md`
+   - source file count and total source byte summary
+4. Explicitly scope the worker to the single LangGraph inventory phase only:
+   - read recon artifacts and the provided discovery source files
+   - write only `findings_inventory.md`, `violations.md`, and optional debug
+     notes with `_lg_` prefix
+   - do not write `findings_inventory_chunk_*.md`,
+     `inventory_shard_plan.md`, or `inventory_chunk_*.manifest.md`
+   - do not write semantic invariants, depth, RAG, chain, verification,
+     scoring, or report artifacts
+5. Tell the worker that the discovery source file list is authoritative. It
+   must not invent additional source files, skip listed files, or treat stale
+   legacy `.scratchpad` files as inputs.
+6. Write `_lg_inventory_prompt.md` before calling Codex.
+
+The Phase 5 direct-execution wrapper may reuse the shared V2 inventory base
+methodology, but it must override the legacy sharded inventory architecture.
+The LangGraph contract is one canonical `findings_inventory.md` under
+`.lg_scratchpad`, not `inventory_prepare` plus chunk/merge phases.
 
 ## Artifact Contract
 
@@ -974,7 +1107,6 @@ analysis_percontract_scope_review.md
 
 Completion rules:
 
-- `mode` must be `thorough`.
 - `spawn_manifest.md` must exist and remain schema-valid.
 - Manifest-derived first-pass breadth outputs must still pass the Phase 3
   breadth gate before rescan starts.
@@ -1005,8 +1137,6 @@ Phase 4 implementation tasks:
 4. Add `forbidden_rescan_artifacts(scratchpad) -> list[str]` for later-phase
    output families.
 5. Extend `validate_phase_artifacts("rescan", scratchpad, records)` with:
-   - non-thorough mode when mode is available to the validator, or enforce
-     mode in the graph node before validation
    - invalid/missing `spawn_manifest.md`
    - missing or stub first-pass breadth prerequisites
    - missing required rescan output
@@ -1019,6 +1149,80 @@ Phase 4 implementation tasks:
 7. Record only required rescan outputs as required `rescan` artifacts. Extra
    `analysis_rescan_*.md` files can be recorded as debug extras later, but they
    must not compensate for a missing required output.
+
+Phase 5 artifact contract:
+
+```text
+findings_inventory.md
+```
+
+For the initial LangGraph inventory implementation, use one direct inventory
+phase instead of the legacy `inventory_prepare` plus
+`inventory_chunk_a/b/c` plus merge flow.
+
+Discovery source rules:
+
+- `spawn_manifest.md` must exist and remain schema-valid.
+- Manifest-derived first-pass breadth outputs must still pass the Phase 3
+  breadth gate before inventory starts.
+- Required rescan/per-contract outputs must still pass the Phase 4 rescan gate
+  before inventory starts.
+- Inventory sources are only files under the configured LangGraph scratchpad:
+  manifest-derived `analysis_*.md`, `analysis_rescan_*.md`, and
+  `analysis_percontract_*.md`.
+- Legacy `.scratchpad` discovery outputs do not count.
+
+Fail-closed source-size gate:
+
+- Define `INVENTORY_MAX_SOURCE_FILES` and `INVENTORY_MAX_SOURCE_BYTES` in
+  `plamen_langgraph/plamen_lg/artifacts.py`.
+- Before invoking Codex, count inventory source files and sum their byte sizes.
+- If either threshold is exceeded, fail the `inventory` phase with:
+  `inventory source set too large; needs sharded inventory support`.
+- Do not invoke Codex and do not write partial inventory output on this path.
+
+Completion rules:
+
+- `findings_inventory.md` must exist under the configured LangGraph scratchpad.
+- `findings_inventory.md` must be substantial. Use a single
+  `INVENTORY_MIN_BYTES` constant and keep prompt/tests in sync.
+- `findings_inventory.md` must contain at least:
+  - `Source Summary`
+  - `Master Table`
+  - `Per-Finding Detail`
+  - required field labels for finding ID, title, severity, verdict, location,
+    source IDs, root cause, and preferred tag
+- `findings_inventory.md` must account for every discovery source file in the
+  Source Summary.
+- `findings_inventory_chunk_*.md`, `inventory_shard_plan.md`, and
+  `inventory_chunk_*.manifest.md` do not satisfy inventory completion in the
+  LangGraph path.
+- Semantic invariant, depth, RAG, chain, verification, scoring, and report
+  files are not inventory outputs.
+
+Phase 5 implementation tasks:
+
+1. Add `INVENTORY_MIN_BYTES`, `INVENTORY_MAX_SOURCE_FILES`, and
+   `INVENTORY_MAX_SOURCE_BYTES` constants in
+   `plamen_langgraph/plamen_lg/artifacts.py`.
+2. Add `inventory_source_files(scratchpad) -> list[str]` that returns the
+   authoritative discovery source list described above.
+3. Add `inventory_source_size_issues(scratchpad) -> list[str]` that implements
+   the fail-closed file-count and byte-size threshold.
+4. Add `expected_inventory_artifacts(scratchpad) -> list[str]` returning
+   `["findings_inventory.md"]`.
+5. Add `forbidden_inventory_artifacts(scratchpad) -> list[str]` for later-phase
+   output families and legacy sharded inventory files.
+6. Extend `validate_phase_artifacts("inventory", scratchpad, records)` with:
+   - invalid/missing `spawn_manifest.md`
+   - missing or stub first-pass breadth prerequisites
+   - missing or stub rescan prerequisites
+   - oversized discovery source set
+   - missing or stub `findings_inventory.md`
+   - missing required inventory sections/field labels
+   - missing Source Summary accounting for a discovery source file
+   - forbidden later-phase or legacy sharded inventory output family
+7. Record only `findings_inventory.md` as the required `inventory` artifact.
 
 ## SQLite Store
 
@@ -1098,6 +1302,20 @@ existing tables:
 - artifact rows with `phase_name = "rescan"` for every required
   `analysis_rescan_*.md` and `analysis_percontract_*.md` output
 
+Prefix-mode Phase 5 does not need additional tables. It should reuse the
+existing tables:
+
+- one row in `runs`
+- one `phase_runs` row each for `recon`, `instantiate`, `breadth`, `rescan`,
+  and `inventory`
+- artifact rows with `phase_name = "recon"` for recon outputs
+- artifact row with `phase_name = "instantiate"` for `spawn_manifest.md`
+- artifact rows with `phase_name = "breadth"` for every manifest-derived
+  first-pass `analysis_*.md` output
+- artifact rows with `phase_name = "rescan"` for every required
+  `analysis_rescan_*.md` and `analysis_percontract_*.md` output
+- artifact row with `phase_name = "inventory"` for `findings_inventory.md`
+
 Single-node mode needs a small backward-compatible schema migration:
 
 ```sql
@@ -1129,7 +1347,8 @@ requested target phase:
 recon        # `python -m plamen_langgraph.cli recon ...`
 instantiate  # `python -m plamen_langgraph.cli instantiate ...`
 breadth      # `python -m plamen_langgraph.cli breadth ...`
-rescan       # `python -m plamen_langgraph.cli rescan --mode thorough ...`
+rescan       # `python -m plamen_langgraph.cli rescan ...`
+inventory    # `python -m plamen_langgraph.cli inventory ...`
 ```
 
 In single-node mode, `runs.phase` still stores the requested target phase; use
@@ -1144,6 +1363,9 @@ documented `_lg_breadth_agents/` subdirectory.
 Do the same for Phase 4: aggregate rescan work into one `rescan`
 `phase_runs` row and deterministic `_lg_rescan_*` debug files. Do not add a
 rescan worker table until parallel isolation exists.
+For Phase 5, aggregate inventory work into one `inventory` `phase_runs` row
+and deterministic `_lg_inventory_*` debug files. Do not add inventory shard or
+worker tables until single-phase inventory size limits prove insufficient.
 
 State transitions:
 
@@ -1188,11 +1410,15 @@ yet. `--single-node` and `--base-run-id` are explicit node execution controls,
 not broad automatic resume. Do not add "latest run" discovery, partial graph
 auto-resume, or checkpoint replay flags yet.
 
-For Phase 4, keep the same config fields. `rescan` must validate
-`mode == "thorough"` from config before invoking Codex. Add local constants for
-the rescan minimum byte threshold and required output filenames. Do not add
-broad legacy config compatibility, automatic skip semantics for non-thorough
-modes, or checkpoint replay flags yet.
+For Phase 4, keep the same config fields. `rescan` is mandatory in every
+supported mode. Add local constants for the rescan minimum byte threshold and
+required output filenames. Do not add broad legacy config compatibility,
+automatic skip semantics, or checkpoint replay flags yet.
+
+For Phase 5, keep the same config fields. Add local constants for the inventory
+minimum byte threshold, maximum discovery source file count, and maximum
+discovery source bytes. Do not add dynamic inventory sharding, broad legacy
+config compatibility, or checkpoint replay flags yet.
 
 ## Isolation Rules
 
@@ -1220,12 +1446,24 @@ Rules for Phase 3:
 Rules for Phase 4:
 
 - Keep one LangGraph run lock per project.
-- Require Thorough mode before invoking the rescan worker.
 - Do not run Python-level parallel Codex subprocesses against the same writable
   project until worktree/container isolation is implemented.
 - Write rescan outputs only under the configured LangGraph scratchpad.
 - Do not write or mutate legacy `.scratchpad/_v2_checkpoint.json`.
 - Do not let rescan workers edit target source files or dependency manifests.
+- Single-node mode must hold the same run lock as prefix mode.
+- Single-node mode must not mutate the base run it depends on.
+
+Rules for Phase 5:
+
+- Keep one LangGraph run lock per project.
+- Do not run Python-level parallel Codex subprocesses against the same writable
+  project until worktree/container isolation is implemented.
+- Fail closed before invoking Codex if the discovery source set exceeds the
+  configured single-inventory thresholds.
+- Write inventory outputs only under the configured LangGraph scratchpad.
+- Do not write or mutate legacy `.scratchpad/_v2_checkpoint.json`.
+- Do not let inventory workers edit target source files or dependency manifests.
 - Single-node mode must hold the same run lock as prefix mode.
 - Single-node mode must not mutate the base run it depends on.
 
@@ -1263,11 +1501,17 @@ For a run with ID `<run_id>`, write:
   _lg_rescan_stderr.log
   _lg_rescan_events.jsonl
   _lg_rescan_last_message.md
+  _lg_inventory_prompt.md
+  _lg_inventory_stdout.log
+  _lg_inventory_stderr.log
+  _lg_inventory_events.jsonl
+  _lg_inventory_last_message.md
   spawn_manifest.md
   analysis_<focus_area>.md
   analysis_rescan_gap_sweep.md
   analysis_rescan_cross_check.md
   analysis_percontract_scope_review.md
+  findings_inventory.md
 ```
 
 These files are separate from legacy driver files and should not collide with `_v2_checkpoint.json` or `_plamen.log`.
@@ -1348,16 +1592,16 @@ Phase 3 test targets:
 
 Phase 4 test targets:
 
-- `get_phase("rescan")` returns the canonical SC rescan phase metadata and
-  carries Thorough-only mode semantics.
+- `get_phase("rescan")` returns the canonical SC rescan phase metadata and is
+  available in Light, Core, and Thorough modes.
 - `build_rescan_prompt()` includes the Phase 4 methodology body, lists
   manifest-derived first-pass breadth outputs, lists the deterministic rescan
   required outputs, and forbids inventory/depth/report work.
-- `python -m plamen_langgraph.cli rescan ... --mode thorough` parses the same
+- `python -m plamen_langgraph.cli rescan ... --mode core` parses the same
   options as `breadth`.
-- `python -m plamen_langgraph.cli rescan ... --mode core` fails before invoking
-  Codex.
-- `python -m plamen_langgraph.cli rescan ... --mode thorough --single-node
+- `python -m plamen_langgraph.cli rescan ... --mode light` parses and runs the
+  same target phase.
+- `python -m plamen_langgraph.cli rescan ... --mode core --single-node
   --base-run-id ...` parses single-node options and preserves the target phase.
 - Mocked `run_graph(target_phase="rescan")` calls the runner in order:
   `recon`, `instantiate`, `breadth`, then `rescan`.
@@ -1387,6 +1631,48 @@ Phase 4 test targets:
   `run_breadth_graph()` tests continue to pass unchanged.
 - Legacy files such as `_v2_checkpoint.json` are still not created or modified.
 
+Phase 5 test targets:
+
+- `get_phase("inventory")` returns the LangGraph single-inventory phase
+  metadata.
+- `build_inventory_prompt()` includes the inventory methodology body, lists the
+  exact discovery source files, and forbids sharded inventory/depth/report work.
+- `python -m plamen_langgraph.cli inventory ...` parses the same options as
+  `rescan`.
+- `python -m plamen_langgraph.cli inventory ... --single-node --base-run-id ...`
+  parses single-node options and preserves the target phase.
+- Mocked `run_graph(target_phase="inventory")` calls the runner in order:
+  `recon`, `instantiate`, `breadth`, `rescan`, then `inventory`.
+- Mocked `run_phase_node("inventory", base_run_id=...)` calls the runner once
+  for `inventory` when the base run has successful `recon`, `instantiate`,
+  `breadth`, and `rescan`.
+- Single-node `inventory` fails before invoking Codex when the base run lacks
+  successful predecessor phase rows.
+- Single-node `inventory` fails before invoking Codex when breadth or rescan
+  prerequisite artifacts are missing/stub.
+- Prefix-mode `inventory` is not called if `rescan` fails.
+- Oversized discovery source file count fails `inventory` before invoking Codex
+  with `inventory source set too large; needs sharded inventory support`.
+- Oversized discovery source byte count fails `inventory` before invoking Codex
+  with the same fail-closed error.
+- Mocked successful inventory writes `findings_inventory.md`, records five
+  phase rows, and marks the run `succeeded`.
+- Missing `findings_inventory.md` marks `inventory` and the parent run
+  `failed`.
+- Stub `findings_inventory.md` marks `inventory` and the parent run `failed`.
+- Missing required inventory sections or field labels marks `inventory` and
+  the parent run `failed`.
+- Missing Source Summary accounting for any discovery source file marks
+  `inventory` and the parent run `failed`.
+- Legacy sharded inventory artifacts such as `inventory_shard_plan.md`,
+  `inventory_chunk_a.manifest.md`, or `findings_inventory_chunk_a.md` do not
+  satisfy inventory completion.
+- Forbidden later-phase files such as depth, verify, or report outputs do not
+  count as inventory completion.
+- Inventory artifact rows are recorded with `phase_name = "inventory"`.
+- Existing Phase 1-4 tests continue to pass unchanged.
+- Legacy files such as `_v2_checkpoint.json` are still not created or modified.
+
 Do not require a real Codex CLI call in unit tests. Real Codex invocation can be covered by a manual smoke test.
 
 ## Manual Smoke Test
@@ -1412,7 +1698,13 @@ python -m plamen_langgraph.cli breadth /path/to/small/project
 Phase 4 smoke command:
 
 ```bash
-python -m plamen_langgraph.cli rescan /path/to/small/project --mode thorough
+python -m plamen_langgraph.cli rescan /path/to/small/project --mode core
+```
+
+Phase 5 smoke command:
+
+```bash
+python -m plamen_langgraph.cli inventory /path/to/small/project --mode core
 ```
 
 Single-node smoke command after a successful prefix run:
@@ -1424,9 +1716,13 @@ python -m plamen_langgraph.cli breadth /path/to/small/project \
   --single-node \
   --base-run-id <printed-run-id>
 python -m plamen_langgraph.cli rescan /path/to/small/project \
-  --mode thorough \
+  --mode core \
   --single-node \
   --base-run-id <breadth-run-id>
+python -m plamen_langgraph.cli inventory /path/to/small/project \
+  --mode core \
+  --single-node \
+  --base-run-id <rescan-run-id>
 ```
 
 Then verify:
@@ -1460,6 +1756,12 @@ Expected result:
   `instantiate` row, one `breadth` row, and one `rescan` row.
 - Phase 4 only: `artifacts` contains one `rescan` row per required rescan
   output.
+- Phase 5 only: `findings_inventory.md` exists under `.lg_scratchpad`.
+- Phase 5 only: `phase_runs` contains exactly one `recon` row, one
+  `instantiate` row, one `breadth` row, one `rescan` row, and one `inventory`
+  row.
+- Phase 5 only: `artifacts` contains one `inventory` row for
+  `findings_inventory.md`.
 - Single-node only: the new `runs` row has `execution_mode = single_node`,
   `base_run_id` set to the referenced prefix run, and only the target
   `phase_runs` row under the new run id.
@@ -1627,7 +1929,7 @@ Phase 3 acceptance criteria:
 
 ## Phase 4 Implementation Plan
 
-Phase 4 should implement the Thorough-only rescan phase from `SC_PHASES`:
+Phase 4 should implement the mandatory rescan phase:
 
 ```text
 recon -> instantiate -> breadth -> rescan
@@ -1641,8 +1943,8 @@ Rationale:
   findings the first pass missed.
 - It produces additional discovery artifacts consumed later by inventory:
   `analysis_rescan_*.md` and `analysis_percontract_*.md`.
-- It is mode-gated to Thorough mode, so it exercises phase availability checks
-  without adding full legacy mode pruning.
+- It is required in Light, Core, and Thorough so every LangGraph run has the
+  same discovery producer sequence before inventory.
 
 Do not implement `inventory_prepare`, inventory, semantic invariants, depth,
 RAG, chain, verification, scoring, or report work in Phase 4. Do not replace
@@ -1654,8 +1956,8 @@ worktree/container isolation is designed.
 Phase 4 development checklist:
 
 1. Add `rescan` to `SUPPORTED_TARGET_PHASES`.
-2. Add `get_phase("rescan")` support using the canonical SC phase metadata,
-   including Thorough-only mode semantics.
+2. Add `get_phase("rescan")` support using LangGraph phase metadata that is
+   available in every supported mode.
 3. Add `build_rescan_prompt(config, open_outputs=None)` using
    `prompts/shared/v2/phase4-rescan.md`.
 4. Add `run_rescan_graph()` as a wrapper around
@@ -1664,8 +1966,7 @@ Phase 4 development checklist:
    `recon -> instantiate -> breadth -> rescan`.
 6. Extend `_predecessors_for("rescan")` to require `recon`, `instantiate`, and
    `breadth`.
-7. Add a rescan mode gate in prefix and single-node paths:
-   `mode` must equal `thorough` before invoking Codex.
+7. Ensure there is no mode gate that skips or fails `rescan` for Light/Core.
 8. Add `rescan` to the CLI with the same options as `breadth`.
 9. In CLI single-node mode, require `--base-run-id` for `rescan`.
 10. Add `RESCAN_MIN_BYTES = 200` and `RESCAN_REQUIRED_ARTIFACTS` in
@@ -1680,8 +1981,8 @@ Phase 4 development checklist:
     outputs against manifest-derived first-pass breadth outputs.
 15. Teach the graph node to record one artifact row per required rescan output.
 16. Update `plamen_langgraph/README.md` to document the rescan command,
-    Thorough-only behavior, single-node command shape, and `_lg_rescan_*`
-    debug files.
+    all-mode behavior, single-node command shape, and `_lg_rescan_*` debug
+    files.
 17. Add unit tests before manual smoke testing.
 18. Run existing Phase 1, Phase 2, and Phase 3 tests to prove behavior did not
     regress.
@@ -1694,11 +1995,11 @@ Phase 4 acceptance criteria:
    `recon -> instantiate`.
 3. `python -m plamen_langgraph.cli breadth /path/to/project` still runs
    `recon -> instantiate -> breadth`.
-4. `python -m plamen_langgraph.cli rescan /path/to/project --mode thorough`
+4. `python -m plamen_langgraph.cli rescan /path/to/project --mode core`
    runs `recon -> instantiate -> breadth -> rescan`.
-5. `python -m plamen_langgraph.cli rescan /path/to/project --mode core` fails
-   before invoking Codex.
-6. `python -m plamen_langgraph.cli rescan /path/to/project --mode thorough
+5. `python -m plamen_langgraph.cli rescan /path/to/project --mode light`
+   also runs `recon -> instantiate -> breadth -> rescan`.
+6. `python -m plamen_langgraph.cli rescan /path/to/project --mode core
    --single-node --base-run-id <id>` runs only `rescan` after validating
    predecessor success and artifacts.
 7. If `recon`, `instantiate`, or `breadth` fails, `rescan` is not executed in
@@ -1725,7 +2026,101 @@ Phase 4 acceptance criteria:
 18. A manual smoke test can produce valid first-pass breadth outputs and the
     required rescan/per-contract outputs.
 
-Deferred after Phase 4:
+## Phase 5 Implementation Plan
+
+Phase 5 should implement a single LangGraph inventory phase:
+
+```text
+recon -> instantiate -> breadth -> rescan -> inventory
+```
+
+Rationale:
+
+- LangGraph should keep the initial post-rescan path simple and avoid porting
+  the legacy `inventory_prepare` plus `inventory_chunk_a/b/c` plus merge flow.
+- `inventory` is the canonical boundary between discovery producers and
+  downstream analysis. Downstream phases should consume `findings_inventory.md`
+  instead of reading raw `analysis_*.md` families directly.
+- Single-phase inventory is simpler to route, store, retry, and validate.
+- Large audits should fail closed before Codex runs rather than producing a
+  silently incomplete inventory. Sharded inventory can be reintroduced later
+  with explicit LangGraph support when thresholds are exceeded in practice.
+
+Do not implement semantic invariants, depth, RAG, chain, verification, scoring,
+or report work in Phase 5. Do not implement dynamic inventory shards yet. The
+first Phase 5 target is a correct, testable single inventory phase boundary
+with fail-closed source-size gating.
+
+Phase 5 development checklist:
+
+1. Add `inventory` to `SUPPORTED_TARGET_PHASES`.
+2. Add `get_phase("inventory")` support with expected artifact
+   `findings_inventory.md`.
+3. Add `build_inventory_prompt(config, source_files=None)` using
+   `prompts/shared/v2/phase4a-inventory-base.md`.
+4. Add `run_inventory_graph()` as a wrapper around
+   `run_graph(config, target_phase="inventory")`.
+5. Extend `build_graph()` so `target_phase = "inventory"` compiles
+   `recon -> instantiate -> breadth -> rescan -> inventory`.
+6. Extend `_predecessors_for("inventory")` to require `recon`, `instantiate`,
+   `breadth`, and `rescan`.
+7. Add `inventory` to the CLI with the same options as `rescan`.
+8. In CLI single-node mode, require `--base-run-id` for `inventory`.
+9. Add `INVENTORY_MIN_BYTES`, `INVENTORY_MAX_SOURCE_FILES`, and
+   `INVENTORY_MAX_SOURCE_BYTES` in
+   `plamen_langgraph/plamen_lg/artifacts.py`.
+10. Add `inventory_source_files()`, `inventory_source_size_issues()`,
+    `expected_inventory_artifacts()`, and `forbidden_inventory_artifacts()`.
+11. Extend `validate_phase_artifacts("inventory", scratchpad, records)` with
+    the inventory contract described above.
+12. Teach the graph node to fail before invoking Codex when
+    `inventory_source_size_issues()` returns any issue.
+13. Teach the graph node to record one artifact row for `findings_inventory.md`.
+14. Update `plamen_langgraph/README.md` to document the inventory command,
+    fail-closed source-size behavior, single-node command shape, and
+    `_lg_inventory_*` debug files.
+15. Add unit tests before manual smoke testing.
+16. Run existing Phase 1-4 tests to prove behavior did not regress.
+
+Phase 5 acceptance criteria:
+
+1. `python -m plamen_langgraph.cli recon /path/to/project` still runs only
+   `recon`.
+2. `python -m plamen_langgraph.cli instantiate /path/to/project` still runs
+   `recon -> instantiate`.
+3. `python -m plamen_langgraph.cli breadth /path/to/project` still runs
+   `recon -> instantiate -> breadth`.
+4. `python -m plamen_langgraph.cli rescan /path/to/project --mode core` still
+   runs `recon -> instantiate -> breadth -> rescan`.
+5. `python -m plamen_langgraph.cli inventory /path/to/project --mode core`
+   runs `recon -> instantiate -> breadth -> rescan -> inventory`.
+6. `python -m plamen_langgraph.cli inventory /path/to/project --mode core
+   --single-node --base-run-id <id>` runs only `inventory` after validating
+   predecessor success and artifacts.
+7. If `recon`, `instantiate`, `breadth`, or `rescan` fails, `inventory` is not
+   executed in prefix mode.
+8. Breadth and rescan artifact gates are revalidated before inventory work
+   starts.
+9. Oversized discovery source file count or total byte size fails before
+   invoking Codex with `inventory source set too large; needs sharded inventory
+   support`.
+10. The inventory gate requires `findings_inventory.md` to exist, be
+    substantial, contain required sections and field labels, and account for
+    every discovery source file.
+11. Legacy sharded inventory files do not satisfy the gate.
+12. Later-phase output families do not satisfy the gate.
+13. The prefix run has five successful `phase_runs` rows when all five phases
+    pass.
+14. Inventory artifact rows are recorded with `phase_name = "inventory"` and
+    exact required path `findings_inventory.md`.
+15. No semantic invariant, depth, verification, scoring, or report artifacts
+    are required by Phase 5.
+16. No legacy checkpoint is written.
+17. Unit tests pass with mocked runners.
+18. A manual smoke test can produce valid discovery outputs and
+    `findings_inventory.md`.
+
+Deferred after Phase 5:
 
 - worktree isolation
 - parallel worker policy
