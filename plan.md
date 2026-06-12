@@ -1,4 +1,4 @@
-# Plamen LangGraph Phase 1-6 Refactor Plan
+# Plamen LangGraph Phase 1-7 Refactor Plan
 
 ## Objective
 
@@ -14,6 +14,8 @@ Phase 5 extends the same prefix to a single canonical `inventory` phase that
 consolidates all discovery outputs.
 Phase 6 extends the same prefix to the semantic invariant pre-computation
 phase: `invariants`.
+Phase 7 extends the LangGraph path to the first adaptive depth boundary:
+`depth`.
 
 The Phase 1 goal is to prove the new architecture can:
 
@@ -84,6 +86,22 @@ The Phase 6 goal is to prove that the architecture can:
 - fail the invariants phase when `semantic_invariants.md` is missing, stub, or
   structurally incomplete
 - record invariants artifacts and phase status in SQLite
+- still avoid legacy driver/checkpoint mutation
+
+The Phase 7 goal is to prove that the architecture can:
+
+- execute a mode-aware depth graph:
+  - Light: `recon -> instantiate -> breadth -> rescan -> inventory -> depth`
+  - Core/Thorough:
+    `recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth`
+- run the initial LangGraph `depth` phase in every mode
+- consume `findings_inventory.md`, `semantic_invariants.md` when present, and
+  recon artifacts as bounded read-only inputs
+- write the mode-required depth artifact set without depending on legacy
+  checkpoint state
+- fail the depth phase when required depth outputs are missing, stub, or
+  structurally incomplete
+- record depth artifacts and phase status in SQLite
 - still avoid legacy driver/checkpoint mutation
 
 ## High-Level Architecture
@@ -199,6 +217,26 @@ new CLI entry
       -> end
 ```
 
+Phase 7 target shape:
+
+```text
+new CLI entry
+  -> LangGraph graph
+      -> recon phase node
+      -> instantiate phase node
+      -> breadth phase node
+      -> rescan phase node
+      -> inventory phase node
+      -> optional invariants phase node (Core/Thorough only)
+      -> depth phase node
+          -> inventory/invariants prerequisite gate
+          -> mode-aware depth artifact contract
+          -> CodexRunner
+          -> depth output structural gate
+          -> SQLite state store
+      -> end
+```
+
 Long-term target architecture:
 
 ```text
@@ -230,6 +268,11 @@ run as one direct phase node, use a LangGraph-owned copy of the Pass 1
 methodology, and stop after writing `semantic_invariants.md`. Thorough-mode
 Pass 2, invariant fuzzing, Medusa, depth, verification, scoring, and report
 phases remain follow-on work.
+Phase 7 ports only the first LangGraph depth boundary. It should run as one
+direct phase node and write the mode-required depth outputs under
+`.lg_scratchpad`. LangGraph-level fan-out, per-agent worktrees, container
+isolation, Thorough iteration 2-3, fuzz/Medusa orchestration, RAG, chain,
+verification, and report phases remain follow-on work.
 
 ## Directory Strategy
 
@@ -2299,7 +2342,197 @@ Phase 6 acceptance criteria:
 19. A manual smoke test can produce valid inventory prerequisites and
     `semantic_invariants.md`.
 
-Deferred after Phase 6:
+## Phase 7 Implementation Plan
+
+Phase 7 should implement a single LangGraph adaptive depth phase:
+
+```text
+Light:
+recon -> instantiate -> breadth -> rescan -> inventory -> depth
+
+Core/Thorough:
+recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth
+```
+
+Rationale:
+
+- `depth` is the canonical post-inventory investigation phase in
+  `scripts/plamen_types.py`.
+- Light mode intentionally skips semantic invariants but still runs depth;
+  depth agents should fall back to `state_variables.md` when
+  `semantic_invariants.md` is absent.
+- Core and Thorough should consume `semantic_invariants.md` before depth so the
+  initial LangGraph depth boundary preserves the same upstream ordering as the
+  legacy smart-contract pipeline.
+- The initial LangGraph version should prove mode-aware depth artifact routing
+  and validation before adding true parallel depth-agent fan-out.
+
+Do not implement LangGraph-level parallel depth workers, per-agent worktrees,
+container isolation, Thorough iteration 2-3, invariant fuzzing, Medusa, RAG,
+chain analysis, verification, scoring as a standalone later phase, or report
+work in Phase 7. The first Phase 7 target is a correct, testable direct depth
+phase boundary with mode-aware required outputs.
+
+Phase 7 depth artifact contract:
+
+- All modes require:
+  - `depth_token_flow_findings.md`
+  - `depth_state_trace_findings.md`
+  - `depth_edge_case_findings.md`
+  - `depth_external_findings.md`
+- Core and Thorough additionally require:
+  - `blind_spot_a_findings.md`
+  - `blind_spot_b_findings.md`
+  - `blind_spot_c_findings.md`
+  - `validation_sweep_findings.md` or `scanner_validation_findings.md`
+  - `confidence_scores.md`
+- Thorough additionally requires:
+  - `design_stress_findings.md` or `depth_design_stress_findings.md`
+  - `perturbation_findings.md` or `depth_perturbation_findings.md`
+  - `skill_execution_gaps.md` or `skill_execution_checklist.md`
+
+Use `scripts/plamen_types.py::sc_never_cut_groups(mode)` as the source of
+truth for accepted artifact groups where practical. `invariant_fuzz_results.md`
+and `medusa_fuzz_findings.md` may be produced by a later fuzz-enabled depth
+phase, but they are not required by the initial LangGraph Phase 7 gate.
+
+Phase 7 development checklist:
+
+1. Add `depth` to `SUPPORTED_TARGET_PHASES`.
+2. Add `get_phase("depth")` support with expected family
+   `depth_*_findings.md` and base timeout matching the canonical SC phase.
+3. Add a LangGraph-owned prompt body under `plamen_langgraph/prompts/`, based
+   on `prompts/shared/v2/phase4b-depth.md` but scoped to the direct LangGraph
+   depth node.
+4. Add `build_depth_prompt(config, required_outputs=None)` that wraps the
+   methodology with:
+   - project root
+   - scratchpad
+   - pipeline
+   - mode
+   - language
+   - required input artifacts
+   - mode-required output groups
+   - direct-execution fallback rules
+5. Scope the worker to depth only:
+   - read `findings_inventory.md`, recon artifacts, `semantic_invariants.md`
+     when present, `state_variables.md`, `function_list.md`, and referenced
+     target source files as needed
+   - write only mode-required depth outputs, `confidence_scores.md` when
+     required, `adaptive_loop_log.md` if useful, `violations.md`, and optional
+     debug notes with `_lg_` prefix
+   - do not write RAG, chain, verification, skeptic, crossbatch, report, or
+     legacy checkpoint artifacts
+6. In Light mode, compile the graph as
+   `recon -> instantiate -> breadth -> rescan -> inventory -> depth` and do
+   not invoke or require `invariants`.
+7. In Core and Thorough, compile the graph as
+   `recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth`.
+8. Add `run_depth_graph()` as a wrapper around
+   `run_graph(config, target_phase="depth")`.
+9. Extend `_predecessors_for("depth", mode)` or equivalent graph logic so
+   Light requires `recon`, `instantiate`, `breadth`, `rescan`, and `inventory`,
+   while Core/Thorough additionally require `invariants`.
+10. Add `depth` to the CLI with the same common options as `invariants`.
+11. In CLI single-node mode, infer the latest successful direct predecessor:
+    `inventory` for Light, `invariants` for Core/Thorough.
+12. Add `DEPTH_MIN_BYTES`, `expected_depth_artifact_groups(mode)`,
+    `expected_depth_artifacts(mode)`, `depth_prerequisite_issues(mode)`, and
+    `forbidden_depth_artifacts()` in `plamen_langgraph/plamen_lg/artifacts.py`.
+13. Extend `validate_phase_artifacts("depth", scratchpad, records)` so each
+    required artifact group must have at least one accepted file present and
+    substantial.
+14. Validate each required depth output for basic structure:
+    - role/title heading
+    - investigated candidates or explicit no-finding rationale
+    - evidence references with source locations where applicable
+    - verdict or disposition per reported item
+    - limitations or unresolved evidence gaps
+15. For Core/Thorough, validate `confidence_scores.md` exists and references
+    depth-produced finding IDs or states that no scoreable findings were found.
+16. Reject forbidden downstream artifacts such as `rag_validation.md`,
+    `chain_hypotheses.md`, `verify_*.md`, `verification_*.md`,
+    `report_*.md`, `AUDIT_REPORT.md`, and legacy checkpoint files as depth
+    completion artifacts.
+17. Teach the graph node to revalidate inventory and, when required,
+    invariants prerequisites before invoking Codex for `depth`.
+18. Teach the graph node to record one artifact row for every accepted
+    required depth output file.
+19. Update `plamen_langgraph/README.md` to document the `depth` command,
+    Light/Core/Thorough graph differences, single-node command shape,
+    mode-required outputs, and `_lg_depth_*` debug files.
+20. Add unit tests before manual smoke testing.
+21. Run existing Phase 1-6 tests to prove behavior did not regress.
+
+Phase 7 interface notes:
+
+```bash
+python -m plamen_langgraph.cli depth /path/to/project --mode light
+python -m plamen_langgraph.cli depth /path/to/project --mode core
+python -m plamen_langgraph.cli depth /path/to/project --mode thorough
+python -m plamen_langgraph.cli depth /path/to/project \
+  --mode core --single-node --base-run-id <invariants-run-id>
+python -m plamen_langgraph.cli depth /path/to/project \
+  --mode light --single-node --base-run-id <inventory-run-id>
+```
+
+When `--base-run-id` is omitted, single-node mode should infer the latest
+successful direct predecessor for the same project and scratchpad. Light infers
+`inventory`; Core and Thorough infer `invariants`.
+
+Prefix-mode Phase 7 does not need additional SQLite tables. It should reuse the
+existing `runs`, `phase_runs`, and `artifacts` tables.
+
+Phase 7 acceptance criteria:
+
+1. `python -m plamen_langgraph.cli recon /path/to/project` still runs only
+   `recon`.
+2. `python -m plamen_langgraph.cli instantiate /path/to/project` still runs
+   `recon -> instantiate`.
+3. `python -m plamen_langgraph.cli breadth /path/to/project` still runs
+   `recon -> instantiate -> breadth`.
+4. `python -m plamen_langgraph.cli rescan /path/to/project --mode core` still
+   runs `recon -> instantiate -> breadth -> rescan`.
+5. `python -m plamen_langgraph.cli inventory /path/to/project --mode core`
+   still runs `recon -> instantiate -> breadth -> rescan -> inventory`.
+6. `python -m plamen_langgraph.cli invariants /path/to/project --mode core`
+   still runs
+   `recon -> instantiate -> breadth -> rescan -> inventory -> invariants`.
+7. `python -m plamen_langgraph.cli depth /path/to/project --mode light` runs
+   `recon -> instantiate -> breadth -> rescan -> inventory -> depth` and does
+   not run or require `invariants`.
+8. `python -m plamen_langgraph.cli depth /path/to/project --mode core` runs
+   `recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth`.
+9. `python -m plamen_langgraph.cli depth /path/to/project --mode thorough`
+   also runs the Core/Thorough depth prefix.
+10. `python -m plamen_langgraph.cli depth /path/to/project --mode light
+    --single-node --base-run-id <id>` runs only `depth` after validating a
+    successful `inventory` predecessor and artifacts.
+11. `python -m plamen_langgraph.cli depth /path/to/project --mode core
+    --single-node --base-run-id <id>` runs only `depth` after validating a
+    successful `invariants` predecessor and artifacts.
+12. If any required predecessor fails, `depth` is not executed in prefix mode.
+13. Light mode requires the four standard depth output files and records one
+    artifact row for each.
+14. Core mode requires the four standard depth outputs, blind spot outputs,
+    validation sweep output, and `confidence_scores.md`.
+15. Thorough mode requires all Core outputs plus design stress, perturbation,
+    and skill execution outputs.
+16. Accepted alias groups are honored for validation sweep, design stress,
+    perturbation, and skill execution outputs.
+17. Missing, stub, or structurally incomplete required depth outputs fail the
+    depth phase.
+18. Downstream RAG, chain, verification, scoring-as-later-phase, and report
+    artifacts do not satisfy the depth gate.
+19. The successful Light prefix run has six successful `phase_runs` rows.
+20. The successful Core/Thorough prefix run has seven successful `phase_runs`
+    rows.
+21. No legacy checkpoint is written.
+22. Unit tests pass with mocked runners.
+23. A manual smoke test can produce valid depth prerequisites and the
+    mode-required depth outputs.
+
+Deferred after Phase 7:
 
 - worktree isolation
 - parallel worker policy
