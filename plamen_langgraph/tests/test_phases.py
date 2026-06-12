@@ -4,6 +4,7 @@ from plamen_langgraph.plamen_lg import phases as phase_module
 from plamen_langgraph.plamen_lg.config import build_config
 from plamen_langgraph.plamen_lg.phases import (
     build_breadth_prompt,
+    build_depth_prompt,
     build_instantiate_prompt,
     build_invariants_prompt,
     build_inventory_prompt,
@@ -72,6 +73,27 @@ def test_invariants_methodology_is_langgraph_owned():
         encoding="utf-8"
     )
     assert phase_module._read_invariants_methodology() != shared_path.read_text(
+        encoding="utf-8"
+    )
+
+
+def test_depth_methodology_is_langgraph_owned():
+    langgraph_path = phase_module._langgraph_prompt_path("phase7-depth.md")
+    shared_path = (
+        phase_module._repo_root()
+        / "prompts"
+        / "shared"
+        / "v2"
+        / "phase4b-depth.md"
+    )
+
+    assert "plamen_langgraph/prompts" in langgraph_path.as_posix()
+    assert langgraph_path.exists()
+    assert shared_path.exists()
+    assert phase_module._read_depth_methodology() == langgraph_path.read_text(
+        encoding="utf-8"
+    )
+    assert phase_module._read_depth_methodology() != shared_path.read_text(
         encoding="utf-8"
     )
 
@@ -296,4 +318,33 @@ def test_langgraph_invariants_prompt_uses_pass1_methodology(tmp_path):
     assert "findings_inventory.md" in prompt
     assert "state_variables.md" in prompt
     assert "function_list.md" in prompt
+    assert "_v2_checkpoint.json" in prompt
+
+
+def test_depth_phase_metadata_is_langgraph_owned():
+    phase = get_phase("depth", "sc")
+
+    assert phase.name == "depth"
+    assert phase.section_markers == ["LangGraph depth"]
+    assert expected_phase_artifacts("depth") == ["depth_*_findings.md"]
+    assert phase.base_timeout_s == 7200
+
+
+def test_langgraph_depth_prompt_uses_mode_aware_direct_methodology(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, language="evm", mode="thorough").to_dict()
+
+    prompt = build_depth_prompt(config)
+
+    assert prompt.startswith("# Plamen LangGraph Depth Direct-Execution Prompt")
+    assert "LangGraph Depth: Direct Adaptive Boundary" in prompt
+    assert "`findings_inventory.md`" in prompt
+    assert "`semantic_invariants.md`" in prompt
+    assert "`depth_token_flow_findings.md`" in prompt
+    assert "`confidence_scores.md`" in prompt
+    assert "`design_stress_findings.md` or `depth_design_stress_findings.md`" in prompt
+    assert "Do not call Task, launch subagents" in prompt
+    assert "Do not write `rag_validation.md`" in prompt
+    assert "role/title heading" in prompt
     assert "_v2_checkpoint.json" in prompt

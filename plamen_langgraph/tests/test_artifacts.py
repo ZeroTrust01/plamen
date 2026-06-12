@@ -5,12 +5,15 @@ import hashlib
 from plamen_langgraph.plamen_lg import artifacts as artifacts_module
 from plamen_langgraph.plamen_lg.artifacts import (
     BREADTH_MIN_BYTES,
+    DEPTH_MIN_BYTES,
     INVARIANTS_MIN_BYTES,
     INVENTORY_MIN_BYTES,
     INVENTORY_SOURCE_TOO_LARGE,
     RESCAN_MIN_BYTES,
     check_artifacts,
+    depth_prerequisite_issues,
     expected_breadth_artifacts,
+    expected_depth_artifact_groups,
     expected_invariants_artifacts,
     expected_inventory_artifacts,
     first_pass_breadth_issues,
@@ -349,6 +352,44 @@ def _valid_invariants_body() -> str:
     )
 
 
+def _valid_depth_body(title: str, finding_id: str = "[DT-1]") -> str:
+    return (
+        f"# {title}\n\n"
+        "## Investigated Candidates\n\n"
+        f"- Candidate {finding_id}: reviewed inventory source CS-1 and related code paths.\n\n"
+        "## Evidence\n\n"
+        "- Source location: src/A.sol:10-20. Reference: findings_inventory.md CS-1.\n\n"
+        "## Verdict\n\n"
+        f"- {finding_id}: UNRESOLVED pending stronger exploitability evidence.\n\n"
+        "## Limitations\n\n"
+        "- Limitations: no live deployment configuration was available; unresolved evidence gap recorded.\n\n"
+        + ("Depth evidence. " * DEPTH_MIN_BYTES)
+    )
+
+
+def _valid_confidence_body() -> str:
+    return (
+        "# Confidence Scores\n\n"
+        "| Finding ID | Confidence | Rationale |\n"
+        "|------------|------------|-----------|\n"
+        "| [DT-1] | Medium | Evidence references support a plausible issue. |\n\n"
+        + ("Confidence evidence. " * DEPTH_MIN_BYTES)
+    )
+
+
+def _write_depth_outputs(scratch, mode: str = "core", aliases: dict[str, str] | None = None):
+    aliases = aliases or {}
+    for group in expected_depth_artifact_groups(mode):
+        name = aliases.get(group[0], group[0])
+        if name == "confidence_scores.md":
+            (scratch / name).write_text(_valid_confidence_body(), encoding="utf-8")
+        else:
+            (scratch / name).write_text(
+                _valid_depth_body(name.replace("_", " ").replace(".md", "").title()),
+                encoding="utf-8",
+            )
+
+
 def test_inventory_source_files_are_authoritative_discovery_set(tmp_path):
     scratch = tmp_path / ".lg_scratchpad"
     _write_inventory_prerequisites(scratch)
@@ -508,3 +549,87 @@ def test_invariants_validator_rejects_downstream_outputs(tmp_path):
     assert any("invariant_fuzz_results.md" in issue for issue in issues)
     assert any("depth_token_flow_findings.md" in issue for issue in issues)
     assert any("verify_core.md" in issue for issue in issues)
+
+
+def test_expected_depth_artifact_groups_are_mode_aware():
+    light = expected_depth_artifact_groups("light")
+    core = expected_depth_artifact_groups("core")
+    thorough = expected_depth_artifact_groups("thorough")
+
+    assert ["depth_token_flow_findings.md"] in light
+    assert ["confidence_scores.md"] not in light
+    assert ["confidence_scores.md"] in core
+    assert ["design_stress_findings.md", "depth_design_stress_findings.md"] in thorough
+    assert ["skill_execution_gaps.md", "skill_execution_checklist.md"] in thorough
+
+
+def test_depth_prerequisites_are_mode_aware(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_invariants_prerequisites(scratch)
+
+    light_issues = depth_prerequisite_issues(scratch, "light")
+    core_issues = depth_prerequisite_issues(scratch, "core")
+
+    assert not any("semantic_invariants.md" in issue for issue in light_issues)
+    assert any("missing invariants artifact: semantic_invariants.md" in issue for issue in core_issues)
+
+    (scratch / "semantic_invariants.md").write_text(
+        _valid_invariants_body(),
+        encoding="utf-8",
+    )
+
+    assert depth_prerequisite_issues(scratch, "core") == []
+
+
+def test_depth_validator_accepts_light_outputs_without_invariants(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_invariants_prerequisites(scratch)
+    _write_depth_outputs(scratch, "light")
+
+    assert validate_phase_artifacts("depth", scratch, [], mode="light") == []
+
+
+def test_depth_validator_accepts_alias_groups(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_invariants_prerequisites(scratch)
+    (scratch / "semantic_invariants.md").write_text(
+        _valid_invariants_body(),
+        encoding="utf-8",
+    )
+    _write_depth_outputs(
+        scratch,
+        "thorough",
+        aliases={
+            "validation_sweep_findings.md": "scanner_validation_findings.md",
+            "design_stress_findings.md": "depth_design_stress_findings.md",
+            "perturbation_findings.md": "depth_perturbation_findings.md",
+            "skill_execution_gaps.md": "skill_execution_checklist.md",
+        },
+    )
+
+    assert validate_phase_artifacts("depth", scratch, [], mode="thorough") == []
+
+
+def test_depth_validator_rejects_missing_stub_incomplete_and_forbidden_outputs(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_invariants_prerequisites(scratch)
+    (scratch / "semantic_invariants.md").write_text(
+        _valid_invariants_body(),
+        encoding="utf-8",
+    )
+    _write_depth_outputs(scratch, "core")
+    (scratch / "depth_edge_case_findings.md").write_text("too short", encoding="utf-8")
+    (scratch / "depth_external_findings.md").write_text(
+        "# External\n\nEvidence only.\n" + ("x" * DEPTH_MIN_BYTES),
+        encoding="utf-8",
+    )
+    (scratch / "rag_validation.md").write_text("downstream", encoding="utf-8")
+    (scratch / "_v2_checkpoint.json").write_text("{}", encoding="utf-8")
+
+    issues = validate_phase_artifacts("depth", scratch, [], mode="core")
+
+    assert any("stub depth artifact: depth_edge_case_findings.md" in issue for issue in issues)
+    assert any("depth_external_findings.md missing investigated candidates" in issue for issue in issues)
+    assert any("forbidden downstream or legacy" in issue for issue in issues)
+    assert any("rag_validation.md" in issue for issue in issues)
+    assert any("_v2_checkpoint.json" in issue for issue in issues)

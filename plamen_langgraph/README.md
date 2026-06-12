@@ -11,6 +11,10 @@ canonical `findings_inventory.md`. The package intentionally lives outside the
 legacy driver. The `invariants` node extends the Core/Thorough prefix to
 `recon -> instantiate -> breadth -> rescan -> inventory -> invariants` and
 writes one semantic invariant Pass 1 artifact, `semantic_invariants.md`.
+The `depth` node extends the prefix to the first adaptive depth boundary:
+Light mode runs `recon -> instantiate -> breadth -> rescan -> inventory ->
+depth`, while Core and Thorough run `recon -> instantiate -> breadth ->
+rescan -> inventory -> invariants -> depth`.
 
 LangGraph-owned prompt bodies live in `plamen_langgraph/prompts/`. The legacy
 driver keeps using `prompts/shared/v2/`; these copies are intentionally separate
@@ -25,6 +29,8 @@ python -m plamen_langgraph.cli breadth /path/to/project
 python -m plamen_langgraph.cli rescan /path/to/project
 python -m plamen_langgraph.cli inventory /path/to/project
 python -m plamen_langgraph.cli invariants /path/to/project --mode core
+python -m plamen_langgraph.cli depth /path/to/project --mode light
+python -m plamen_langgraph.cli depth /path/to/project --mode core
 ```
 
 `instantiate` always runs `recon` first. `breadth` always runs `recon` and
@@ -34,6 +40,12 @@ first. `invariants` always runs `recon`, `instantiate`, `breadth`, `rescan`,
 and `inventory` first in Core and Thorough modes. Light mode rejects
 `invariants` before calling Codex. If an upstream phase fails, downstream
 phases do not call Codex and do not create phase rows.
+
+`depth` runs in every mode. Light mode does not invoke or require
+`invariants`; it consumes `findings_inventory.md` and falls back to
+`state_variables.md` when `semantic_invariants.md` is absent. Core and
+Thorough mode require a successful `invariants` predecessor and a valid
+`semantic_invariants.md` before depth starts.
 
 For failed-tail recovery, single-node mode infers the latest successful direct
 predecessor from the LangGraph state DB before running only the requested node:
@@ -50,6 +62,9 @@ python -m plamen_langgraph.cli inventory /path/to/project \
 
 python -m plamen_langgraph.cli invariants /path/to/project \
   --single-node
+
+python -m plamen_langgraph.cli depth /path/to/project \
+  --single-node
 ```
 
 Pass `--base-run-id <run-id>` only when you need to override the inferred
@@ -58,6 +73,9 @@ predecessor run. Inventory single-node mode infers the latest successful
 discovery chain before invoking Codex. Invariants single-node mode infers the
 latest successful `inventory` run for the same project and scratchpad, then
 validates the completed discovery and inventory chain before invoking Codex.
+Depth single-node mode infers the latest successful direct predecessor for the
+same project and scratchpad: `inventory` in Light mode, `invariants` in Core
+and Thorough mode.
 
 Before inventory invokes Codex, it revalidates breadth and rescan artifacts and
 checks the discovery source set against the configured single-pass limits. If
@@ -70,6 +88,13 @@ required recon inputs `state_variables.md` and `function_list.md`.
 `semantic_invariants.md` must include every required semantic invariant section
 and table label. `invariant_fuzz_results.md`, Pass 2, depth, verification,
 scoring, and report artifacts do not satisfy invariants completion.
+
+Before depth invokes Codex, it revalidates inventory structure, recon fallback
+inputs, and Core/Thorough semantic invariants. Depth writes only the
+mode-required depth outputs, `confidence_scores.md` when required,
+`adaptive_loop_log.md` if useful, `violations.md`, and `_lg_` debug files.
+RAG, chain, verification, report, and legacy checkpoint artifacts do not
+satisfy depth completion.
 
 Useful options:
 
@@ -115,12 +140,21 @@ project's `.lg_scratchpad`:
 - `_lg_invariants_stderr.log`
 - `_lg_invariants_events.jsonl`
 - `_lg_invariants_last_message.md`
+- `_lg_depth_prompt.md`
+- `_lg_depth_stdout.log`
+- `_lg_depth_stderr.log`
+- `_lg_depth_events.jsonl`
+- `_lg_depth_last_message.md`
 - `spawn_manifest.md`
 - manifest-derived first-pass `analysis_*.md` files
 - `analysis_rescan_*.md` files
 - `analysis_percontract_*.md` files
 - `findings_inventory.md`
 - `semantic_invariants.md`
+- mode-required depth artifacts such as `depth_token_flow_findings.md`,
+  `depth_state_trace_findings.md`, `depth_edge_case_findings.md`,
+  `depth_external_findings.md`, scanner/blind-spot outputs,
+  `confidence_scores.md`, and Thorough-only stress/perturbation/skill outputs
 
 It does not update legacy checkpoints such as `_v2_checkpoint.json` or write
 to the legacy `.scratchpad` directory unless `--scratchpad` explicitly points
@@ -147,3 +181,16 @@ The invariants gate is single-file and structure-aware:
 `Lifecycle Semantics`, and `Refutation Hazards`, with the required table field
 labels. It is Pass 1 only; Pass 2, fuzzing, depth, verification, scoring, and
 report artifacts remain out of scope.
+
+The depth gate is mode-aware. Light requires the four standard depth outputs:
+`depth_token_flow_findings.md`, `depth_state_trace_findings.md`,
+`depth_edge_case_findings.md`, and `depth_external_findings.md`. Core adds
+`blind_spot_a_findings.md`, `blind_spot_b_findings.md`,
+`blind_spot_c_findings.md`, `validation_sweep_findings.md` or
+`scanner_validation_findings.md`, and `confidence_scores.md`. Thorough adds
+`design_stress_findings.md` or `depth_design_stress_findings.md`,
+`perturbation_findings.md` or `depth_perturbation_findings.md`, and
+`skill_execution_gaps.md` or `skill_execution_checklist.md`. Every accepted
+depth output must be substantial and include a heading, investigated
+candidates or explicit no-finding rationale, evidence, verdict/disposition,
+and limitations or unresolved evidence gaps.

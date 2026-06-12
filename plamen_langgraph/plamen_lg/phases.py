@@ -7,12 +7,14 @@ from typing import Any
 
 from .artifacts import (
     BREADTH_MIN_BYTES,
+    DEPTH_MIN_BYTES,
     INVARIANTS_MIN_BYTES,
     INVENTORY_MAX_SOURCE_BYTES,
     INVENTORY_MAX_SOURCE_FILES,
     INVENTORY_MIN_BYTES,
     RESCAN_MIN_BYTES,
     expected_breadth_artifacts,
+    expected_depth_artifact_groups,
     inventory_source_files,
     rescan_outputs,
 )
@@ -172,6 +174,14 @@ def get_phase(name: str, pipeline: str = "sc") -> Any:
             base_timeout_s=4800,
             critical=False,
         )
+    if name == "depth":
+        return SimplePhase(
+            name="depth",
+            section_markers=["LangGraph depth"],
+            expected_artifacts=["depth_*_findings.md"],
+            base_timeout_s=7200,
+            critical=True,
+        )
     phases = _load_sc_phases()
     if phases:
         for phase in phases:
@@ -221,6 +231,10 @@ def _read_inventory_methodology() -> str:
 
 def _read_invariants_methodology() -> str:
     return _langgraph_prompt_path("phase6-invariants.md").read_text(encoding="utf-8")
+
+
+def _read_depth_methodology() -> str:
+    return _langgraph_prompt_path("phase7-depth.md").read_text(encoding="utf-8")
 
 
 def build_recon_prompt(config: dict[str, Any]) -> str:
@@ -765,6 +779,106 @@ write one canonical `semantic_invariants.md`.
 """
 
 
+def build_depth_prompt(
+    config: dict[str, Any],
+    required_outputs: list[list[str]] | None = None,
+) -> str:
+    """Build a direct-execution prompt for the initial adaptive depth boundary."""
+    methodology = _read_depth_methodology().strip()
+    project_root = _none_if_blank(config.get("project_root"))
+    scratchpad = _none_if_blank(config.get("scratchpad"))
+    db_path = _none_if_blank(config.get("db_path"))
+    language = _none_if_blank(config.get("language", "evm"))
+    mode = _none_if_blank(config.get("mode", "core")).lower()
+    pipeline = _none_if_blank(config.get("pipeline", "sc"))
+    groups = (
+        [list(group) for group in required_outputs]
+        if required_outputs is not None
+        else expected_depth_artifact_groups(mode)
+    )
+    output_groups = "\n".join(
+        f"- {' or '.join(f'`{name}`' for name in group)}" for group in groups
+    )
+    required_inputs = [
+        "`findings_inventory.md`",
+        "`state_variables.md`",
+        "`function_list.md`",
+        "recon artifacts",
+    ]
+    if mode in {"core", "thorough"}:
+        required_inputs.insert(1, "`semantic_invariants.md`")
+    else:
+        required_inputs.append(
+            "`semantic_invariants.md` if present, otherwise use `state_variables.md`"
+        )
+    required_inputs_text = "\n".join(f"- {name}" for name in required_inputs)
+
+    return f"""# Plamen LangGraph Depth Direct-Execution Prompt
+
+You are running only the `depth` phase of Plamen's smart-contract audit
+pipeline. This prompt is generated directly by `plamen_langgraph`; use the
+depth methodology below only to investigate inventoried findings and write the
+mode-required depth output set.
+
+## Configuration
+
+- Project root: `{project_root}`
+- Scratchpad: `{scratchpad}`
+- LangGraph database: `{db_path}`
+- Pipeline: `{pipeline}`
+- Mode: `{mode}`
+- Language: `{language}`
+- Depth minimum output size: `{DEPTH_MIN_BYTES}` bytes
+
+## Required Input Artifacts
+
+{required_inputs_text}
+
+Light mode must not require semantic invariants. Core and Thorough mode must
+consume `semantic_invariants.md` before writing depth outputs.
+
+## Mode-Required Output Groups
+
+Each bullet below is a required artifact group. For groups with aliases, write
+at least one accepted filename from that group under the scratchpad.
+
+{output_groups}
+
+## Hard Scope
+
+1. Execute depth only. Do not run RAG, chain analysis, verification,
+   skeptic/crossbatch review, final scoring, report index, report writing, or
+   report assembly.
+2. Do not call Task, launch subagents, create per-agent worktrees, or depend on
+   legacy checkpoint state. This is one direct LangGraph worker.
+3. Read `findings_inventory.md`, recon artifacts, `semantic_invariants.md` when
+   present or required by mode, `state_variables.md`, `function_list.md`, and
+   referenced target source files as needed.
+4. Write only the mode-required depth outputs, `confidence_scores.md` when
+   required, `adaptive_loop_log.md` if useful, `violations.md`, and optional
+   `_lg_` debug notes under the scratchpad.
+5. Do not write `rag_validation.md`, `chain_hypotheses.md`, `verify_*.md`,
+   `verification_*.md`, `report_*.md`, `AUDIT_REPORT.md`,
+   `_v2_checkpoint.json`, or files under legacy `.scratchpad`.
+6. Every required depth output must include a role/title heading,
+   investigated candidates or an explicit no-finding rationale, evidence
+   references, verdict/disposition, and limitations or unresolved evidence
+   gaps.
+7. If Core or Thorough mode finds no scoreable findings, still write
+   `confidence_scores.md` with an explicit no-scoreable-findings statement.
+
+## Depth Methodology
+
+{methodology}
+
+## Return
+
+After all mode-required depth outputs are written and self-checked, return
+exactly one concise summary:
+`DEPTH COMPLETE: <output_count> required outputs complete, limitations: <short list>`.
+"""
+
+
 def build_phase_prompt(
     name: str,
     config: dict[str, Any],
@@ -782,6 +896,8 @@ def build_phase_prompt(
         return build_inventory_prompt(config)
     if name == "invariants":
         return build_invariants_prompt(config)
+    if name == "depth":
+        return build_depth_prompt(config)
     raise ValueError(f"unsupported LangGraph phase: {name}")
 
 

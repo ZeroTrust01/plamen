@@ -5,15 +5,18 @@ from dataclasses import dataclass
 from plamen_langgraph.plamen_lg.config import build_config
 from plamen_langgraph.plamen_lg.artifacts import (
     BREADTH_MIN_BYTES,
+    DEPTH_MIN_BYTES,
     INVARIANTS_MIN_BYTES,
     INVENTORY_MAX_SOURCE_BYTES,
     INVENTORY_MAX_SOURCE_FILES,
     INVENTORY_MIN_BYTES,
     RESCAN_MIN_BYTES,
     expected_breadth_artifacts,
+    expected_depth_artifact_groups,
     inventory_source_files,
 )
 from plamen_langgraph.plamen_lg.graph import (
+    run_depth_graph,
     run_breadth_graph,
     run_graph,
     run_instantiate_graph,
@@ -66,6 +69,7 @@ class FakeRunner:
         write_rescan_artifacts: bool = True,
         write_inventory_artifact: bool = True,
         write_invariants_artifact: bool = True,
+        write_depth_artifacts: bool = True,
         manifest_text: str = VALID_SPAWN_MANIFEST,
         returncodes: dict[str, int] | None = None,
     ) -> None:
@@ -76,13 +80,16 @@ class FakeRunner:
         self.write_rescan_artifacts = write_rescan_artifacts
         self.write_inventory_artifact = write_inventory_artifact
         self.write_invariants_artifact = write_invariants_artifact
+        self.write_depth_artifacts = write_depth_artifacts
         self.manifest_text = manifest_text
         self.returncodes = returncodes or {}
         self.calls = []
 
     def run(self, prompt, project_root, scratchpad, output_paths, timeout_s):
         stdout_path = str(output_paths["stdout_path"])
-        if "_lg_invariants_" in stdout_path:
+        if "_lg_depth_" in stdout_path:
+            phase = "depth"
+        elif "_lg_invariants_" in stdout_path:
             phase = "invariants"
         elif "_lg_inventory_" in stdout_path:
             phase = "inventory"
@@ -141,6 +148,14 @@ class FakeRunner:
             write_inventory_artifact(output_paths["stdout_path"].parent)
         if phase == "invariants" and self.write_invariants_artifact:
             write_invariants_artifact(output_paths["stdout_path"].parent)
+        if phase == "depth" and self.write_depth_artifacts:
+            if "Mode: `thorough`" in prompt:
+                mode = "thorough"
+            elif "Mode: `light`" in prompt:
+                mode = "light"
+            else:
+                mode = "core"
+            write_depth_artifacts(output_paths["stdout_path"].parent, mode)
         return FakeResult(
             stdout_path=str(output_paths["stdout_path"]),
             stderr_path=str(output_paths["stderr_path"]),
@@ -266,6 +281,43 @@ def write_invariants_artifact(scratch) -> None:
         invariants_body(),
         encoding="utf-8",
     )
+
+
+def depth_body(title: str, finding_id: str = "[DT-1]") -> str:
+    return (
+        f"# {title}\n\n"
+        "## Investigated Candidates\n\n"
+        f"- Candidate {finding_id}: reviewed inventory source CS-1 and related code paths.\n\n"
+        "## Evidence\n\n"
+        "- Source location: src/A.sol:10-20. Reference: findings_inventory.md CS-1.\n\n"
+        "## Verdict\n\n"
+        f"- {finding_id}: UNRESOLVED pending stronger exploitability evidence.\n\n"
+        "## Limitations\n\n"
+        "- Limitations: no live deployment configuration was available; unresolved evidence gap recorded.\n\n"
+        + ("Depth evidence. " * DEPTH_MIN_BYTES)
+    )
+
+
+def confidence_body() -> str:
+    return (
+        "# Confidence Scores\n\n"
+        "| Finding ID | Confidence | Rationale |\n"
+        "|------------|------------|-----------|\n"
+        "| [DT-1] | Medium | Evidence references support a plausible issue. |\n\n"
+        + ("Confidence evidence. " * DEPTH_MIN_BYTES)
+    )
+
+
+def write_depth_artifacts(scratch, mode: str = "core") -> None:
+    for group in expected_depth_artifact_groups(mode):
+        name = group[0]
+        if name == "confidence_scores.md":
+            (scratch / name).write_text(confidence_body(), encoding="utf-8")
+            continue
+        (scratch / name).write_text(
+            depth_body(name.replace("_", " ").replace(".md", "").title()),
+            encoding="utf-8",
+        )
 
 
 def seed_base_run(
@@ -1421,4 +1473,294 @@ def test_single_node_invariants_requires_successful_inventory_and_artifacts(tmp_
     assert state["status"] == "failed"
     assert "successful inventory" in (state["error"] or "")
     assert "missing inventory artifact: findings_inventory.md" in (state["error"] or "")
+    assert runner.calls == []
+
+
+def test_mocked_depth_light_runs_without_invariants(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="light")
+    runner = FakeRunner(write_artifacts=True, write_instantiate_artifact=True)
+
+    state = run_depth_graph(config, runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["completed_phases"] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "depth",
+    ]
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "depth",
+    ]
+    scratch = project / ".lg_scratchpad"
+    assert (scratch / "_lg_depth_prompt.md").exists()
+    assert (scratch / "depth_token_flow_findings.md").exists()
+    assert not (scratch / "semantic_invariants.md").exists()
+    assert not (scratch / "_v2_checkpoint.json").exists()
+    assert not (project / ".scratchpad").exists()
+
+    store = StateStore(config.db_path)
+    phases = store.fetch_all(
+        "select phase_name, status from phase_runs where run_id = ? order by started_at",
+        (state["run_id"],),
+    )
+    depth_artifacts = store.fetch_all(
+        "select phase_name, path, [exists] from artifacts "
+        "where run_id = ? and phase_name = 'depth'",
+        (state["run_id"],),
+    )
+
+    assert phases == [
+        {"phase_name": "recon", "status": "succeeded"},
+        {"phase_name": "instantiate", "status": "succeeded"},
+        {"phase_name": "breadth", "status": "succeeded"},
+        {"phase_name": "rescan", "status": "succeeded"},
+        {"phase_name": "inventory", "status": "succeeded"},
+        {"phase_name": "depth", "status": "succeeded"},
+    ]
+    assert len(depth_artifacts) == 4
+    assert all(row["exists"] == 1 for row in depth_artifacts)
+
+
+def test_mocked_depth_core_runs_after_invariants(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    runner = FakeRunner(write_artifacts=True, write_instantiate_artifact=True)
+
+    state = run_depth_graph(config, runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["completed_phases"] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "invariants",
+        "depth",
+    ]
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "invariants",
+        "depth",
+    ]
+
+    store = StateStore(config.db_path)
+    depth_artifacts = store.fetch_all(
+        "select path, [exists] from artifacts where run_id = ? and phase_name = 'depth'",
+        (state["run_id"],),
+    )
+    assert len(depth_artifacts) == 9
+    assert any(row["path"].endswith("confidence_scores.md") for row in depth_artifacts)
+    assert all(row["exists"] == 1 for row in depth_artifacts)
+
+
+def test_mocked_depth_thorough_requires_extra_groups(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="thorough")
+    runner = FakeRunner(write_artifacts=True, write_instantiate_artifact=True)
+
+    state = run_depth_graph(config, runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "invariants",
+        "depth",
+    ]
+
+    store = StateStore(config.db_path)
+    depth_artifacts = store.fetch_all(
+        "select path, [exists] from artifacts where run_id = ? and phase_name = 'depth'",
+        (state["run_id"],),
+    )
+    assert len(depth_artifacts) == 12
+    assert any(
+        row["path"].endswith("design_stress_findings.md")
+        for row in depth_artifacts
+    )
+    assert any(
+        row["path"].endswith("perturbation_findings.md")
+        for row in depth_artifacts
+    )
+    assert any(
+        row["path"].endswith("skill_execution_gaps.md")
+        for row in depth_artifacts
+    )
+
+
+def test_depth_is_skipped_when_invariants_fail_in_core(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    runner = FakeRunner(
+        write_artifacts=True,
+        write_instantiate_artifact=True,
+        write_breadth_artifacts=True,
+        write_rescan_artifacts=True,
+        write_inventory_artifact=True,
+        write_invariants_artifact=False,
+    )
+
+    state = run_depth_graph(config, runner=runner)
+
+    assert state["status"] == "failed"
+    assert state["failed_phase"] == "invariants"
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "invariants",
+    ]
+
+
+def test_depth_fails_when_outputs_missing(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="light")
+    runner = FakeRunner(
+        write_artifacts=True,
+        write_instantiate_artifact=True,
+        write_breadth_artifacts=True,
+        write_rescan_artifacts=True,
+        write_inventory_artifact=True,
+        write_depth_artifacts=False,
+    )
+
+    state = run_depth_graph(config, runner=runner)
+
+    assert state["status"] == "failed"
+    assert state["failed_phase"] == "depth"
+    assert "missing depth artifact group: depth_token_flow_findings.md" in (
+        state["error"] or ""
+    )
+
+
+def test_single_node_depth_light_uses_successful_inventory_base_run(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="light")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    write_inventory_artifact(scratch)
+    seed_base_run(
+        config,
+        "base-run",
+        ["recon", "instantiate", "breadth", "rescan", "inventory"],
+    )
+    runner = FakeRunner(write_artifacts=False, write_instantiate_artifact=False)
+
+    state = run_phase_node(config, "depth", base_run_id="base-run", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["execution_mode"] == "single_node"
+    assert state["base_run_id"] == "base-run"
+    assert [call["phase"] for call in runner.calls] == ["depth"]
+
+    store = StateStore(config.db_path)
+    phases = store.fetch_all(
+        "select phase_name from phase_runs where run_id = ?",
+        (state["run_id"],),
+    )
+    assert phases == [{"phase_name": "depth"}]
+
+
+def test_single_node_depth_core_infers_latest_successful_invariants_run_chain(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    write_inventory_artifact(scratch)
+    write_invariants_artifact(scratch)
+    seed_base_run(config, "instantiate-run", ["recon", "instantiate"])
+    seed_base_run(
+        config,
+        "breadth-run",
+        ["breadth"],
+        base_run_id="instantiate-run",
+        execution_mode="single_node",
+    )
+    seed_base_run(
+        config,
+        "rescan-run",
+        ["rescan"],
+        base_run_id="breadth-run",
+        execution_mode="single_node",
+    )
+    seed_base_run(
+        config,
+        "inventory-run",
+        ["inventory"],
+        base_run_id="rescan-run",
+        execution_mode="single_node",
+    )
+    seed_base_run(
+        config,
+        "invariants-run",
+        ["invariants"],
+        base_run_id="inventory-run",
+        execution_mode="single_node",
+    )
+    runner = FakeRunner(write_artifacts=False, write_instantiate_artifact=False)
+
+    state = run_phase_node(config, "depth", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["execution_mode"] == "single_node"
+    assert state["base_run_id"] == "invariants-run"
+    assert [call["phase"] for call in runner.calls] == ["depth"]
+
+
+def test_single_node_depth_core_requires_successful_invariants_and_artifacts(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    write_inventory_artifact(scratch)
+    seed_base_run(
+        config,
+        "base-run",
+        ["recon", "instantiate", "breadth", "rescan", "inventory"],
+    )
+    runner = FakeRunner()
+
+    state = run_phase_node(config, "depth", base_run_id="base-run", runner=runner)
+
+    assert state["status"] == "failed"
+    assert "successful invariants" in (state["error"] or "")
+    assert "missing invariants artifact: semantic_invariants.md" in (
+        state["error"] or ""
+    )
     assert runner.calls == []

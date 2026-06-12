@@ -94,6 +94,15 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     add_common_options(invariants)
+    depth = sub.add_parser(
+        "depth",
+        help=(
+            "Run the supported adaptive depth graph prefix. Light mode runs "
+            "recon -> instantiate -> breadth -> rescan -> inventory -> depth; "
+            "Core/Thorough insert invariants before depth."
+        ),
+    )
+    add_common_options(depth)
     return parser
 
 

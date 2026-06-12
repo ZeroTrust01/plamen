@@ -193,6 +193,44 @@ def test_invariants_cli_parses_same_options_as_inventory(tmp_path):
     assert args.timeout_s == 654
 
 
+def test_depth_cli_parses_same_options_as_invariants(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    scratch = tmp_path / "scratch"
+    db = tmp_path / "state.sqlite"
+
+    args = _build_parser().parse_args(
+        [
+            "depth",
+            str(project),
+            "--mode",
+            "light",
+            "--pipeline",
+            "sc",
+            "--language",
+            "soroban",
+            "--scratchpad",
+            str(scratch),
+            "--db",
+            str(db),
+            "--codex-bin",
+            "codex-test",
+            "--timeout-s",
+            "777",
+        ]
+    )
+
+    assert args.command == "depth"
+    assert args.project_root == str(project)
+    assert args.mode == "light"
+    assert args.pipeline == "sc"
+    assert args.language == "soroban"
+    assert args.scratchpad == str(scratch)
+    assert args.db_path == str(db)
+    assert args.codex_bin == "codex-test"
+    assert args.timeout_s == 777
+
+
 def test_single_node_cli_options_preserve_target_phase(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
@@ -216,7 +254,7 @@ def test_single_node_cli_allows_omitted_base_run_id_for_tail_phases(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
 
-    for command in ("rescan", "inventory", "invariants"):
+    for command in ("rescan", "inventory", "invariants", "depth"):
         args = _build_parser().parse_args(
             [
                 command,
@@ -264,5 +302,24 @@ def test_invariants_single_node_cli_parses_base_run_id(tmp_path):
     )
 
     assert args.command == "invariants"
+    assert args.single_node is True
+    assert args.base_run_id == "run-123"
+
+
+def test_depth_single_node_cli_parses_base_run_id(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    args = _build_parser().parse_args(
+        [
+            "depth",
+            str(project),
+            "--single-node",
+            "--base-run-id",
+            "run-123",
+        ]
+    )
+
+    assert args.command == "depth"
     assert args.single_node is True
     assert args.base_run_id == "run-123"
