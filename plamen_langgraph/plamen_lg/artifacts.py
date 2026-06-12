@@ -8,6 +8,12 @@ from typing import Any
 
 BREADTH_MIN_BYTES = 200
 RESCAN_MIN_BYTES = 200
+INVENTORY_MIN_BYTES = 200
+INVENTORY_MAX_SOURCE_FILES = 40
+INVENTORY_MAX_SOURCE_BYTES = 512_000
+INVENTORY_SOURCE_TOO_LARGE = (
+    "inventory source set too large; needs sharded inventory support"
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -396,6 +402,112 @@ def rescan_outputs(scratchpad: str | Path) -> list[str]:
     )
 
 
+def rescan_prerequisite_issues(scratchpad: str | Path) -> list[str]:
+    """Validate completed rescan inputs without rejecting inventory retries."""
+    root = Path(scratchpad)
+    issues = first_pass_breadth_issues(root)
+
+    owned = rescan_outputs(root)
+    rescan_family = [name for name in owned if _is_rescan_output(name)]
+    percontract_family = [name for name in owned if _is_percontract_output(name)]
+    if not rescan_family:
+        issues.append("missing rescan artifact family: analysis_rescan_*.md")
+    if not percontract_family:
+        issues.append("missing per-contract artifact family: analysis_percontract_*.md")
+
+    for name in owned:
+        path = root / name
+        if path.stat().st_size < RESCAN_MIN_BYTES:
+            issues.append(f"stub rescan artifact: {name} (<{RESCAN_MIN_BYTES} bytes)")
+
+    duplicates = duplicate_rescan_outputs_from_first_pass(root)
+    if duplicates:
+        issues.extend(duplicates)
+    return issues
+
+
+def inventory_source_files(scratchpad: str | Path) -> list[str]:
+    """Return the authoritative discovery source list for inventory."""
+    root = Path(scratchpad)
+    sources: list[str] = []
+    seen: set[str] = set()
+    for name in expected_breadth_artifacts(root) + rescan_outputs(root):
+        if name in seen:
+            continue
+        seen.add(name)
+        sources.append(name)
+    return sources
+
+
+def inventory_source_size_issues(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    sources = inventory_source_files(root)
+    total_bytes = 0
+    for name in sources:
+        path = root / name
+        if path.is_file():
+            total_bytes += path.stat().st_size
+    if (
+        len(sources) > INVENTORY_MAX_SOURCE_FILES
+        or total_bytes > INVENTORY_MAX_SOURCE_BYTES
+    ):
+        return [INVENTORY_SOURCE_TOO_LARGE]
+    return []
+
+
+def expected_inventory_artifacts(scratchpad: str | Path) -> list[str]:
+    del scratchpad
+    return ["findings_inventory.md"]
+
+
+def forbidden_inventory_artifacts(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    if not root.exists():
+        return []
+    forbidden: list[str] = []
+    downstream_prefixes = (
+        "depth_",
+        "chain_",
+        "verify_",
+        "verification_",
+        "score",
+        "report_",
+        "rag_",
+        "semantic_",
+        "invariant_",
+    )
+    forbidden_exact = {
+        "AUDIT_REPORT.md",
+        "confidence_scores.md",
+        "findings_inventory_deduped.md",
+        "hypotheses.md",
+        "chain_hypotheses.md",
+        "semantic_invariants.md",
+        "inventory_shard_plan.md",
+        "variable_finding_map.md",
+    }
+    for path in root.glob("*.md"):
+        if not path.is_file():
+            continue
+        name = path.name
+        if name in {"findings_inventory.md", "violations.md"}:
+            continue
+        if name.startswith("_lg_"):
+            continue
+        if name in forbidden_exact:
+            forbidden.append(name)
+            continue
+        if name.startswith("findings_inventory_chunk_"):
+            forbidden.append(name)
+            continue
+        if re.fullmatch(r"inventory_chunk_[A-Za-z0-9_.-]+\.manifest\.md", name):
+            forbidden.append(name)
+            continue
+        if any(name.startswith(prefix) for prefix in downstream_prefixes):
+            forbidden.append(name)
+    return sorted(set(forbidden))
+
+
 def forbidden_rescan_artifacts(scratchpad: str | Path) -> list[str]:
     root = Path(scratchpad)
     if not root.exists():
@@ -455,6 +567,68 @@ def duplicate_rescan_outputs_from_first_pass(scratchpad: str | Path) -> list[str
     return duplicates
 
 
+def _markdown_section(text: str, section_name: str) -> str:
+    pattern = re.compile(
+        rf"(?ims)^#+\s*{re.escape(section_name)}\s*$"
+        rf"(.*?)(?=^#+\s+\S|\Z)"
+    )
+    match = pattern.search(text)
+    return match.group(1) if match else ""
+
+
+def _has_markdown_section(text: str, section_name: str) -> bool:
+    return bool(
+        re.search(rf"(?im)^#+\s*{re.escape(section_name)}\s*$", text)
+        or re.search(rf"(?i)\b{re.escape(section_name)}\b", text)
+    )
+
+
+def _inventory_structure_issues(scratchpad: str | Path) -> list[str]:
+    root = Path(scratchpad)
+    path = root / "findings_inventory.md"
+    if not path.exists():
+        return ["missing inventory artifact: findings_inventory.md"]
+    if path.stat().st_size < INVENTORY_MIN_BYTES:
+        return [
+            "stub inventory artifact: findings_inventory.md "
+            f"(<{INVENTORY_MIN_BYTES} bytes)"
+        ]
+
+    text = path.read_text(encoding="utf-8", errors="replace")
+    issues: list[str] = []
+    required_sections = ["Source Summary", "Master Table", "Per-Finding Detail"]
+    for section in required_sections:
+        if not _has_markdown_section(text, section):
+            issues.append(f"findings_inventory.md missing required section: {section}")
+
+    required_labels = [
+        "Finding ID",
+        "Title",
+        "Severity",
+        "Verdict",
+        "Location",
+        "Source IDs",
+        "Root Cause",
+        "Preferred Tag",
+    ]
+    normalized = text.lower()
+    for label in required_labels:
+        if label.lower() not in normalized:
+            issues.append(f"findings_inventory.md missing required field label: {label}")
+
+    source_summary = _markdown_section(text, "Source Summary")
+    if not source_summary:
+        source_summary = text if _has_markdown_section(text, "Source Summary") else ""
+    if source_summary:
+        for name in inventory_source_files(root):
+            if name not in source_summary:
+                issues.append(
+                    "findings_inventory.md Source Summary missing discovery source: "
+                    f"{name}"
+                )
+    return issues
+
+
 def validate_phase_artifacts(
     phase_name: str,
     scratchpad: str | Path,
@@ -494,33 +668,24 @@ def validate_phase_artifacts(
         return issues
     if phase_name == "rescan":
         root = Path(scratchpad)
-        issues = first_pass_breadth_issues(root)
-
-        owned = rescan_outputs(root)
-        rescan_family = [name for name in owned if _is_rescan_output(name)]
-        percontract_family = [name for name in owned if _is_percontract_output(name)]
-        if not rescan_family:
-            issues.append("missing rescan artifact family: analysis_rescan_*.md")
-        if not percontract_family:
-            issues.append(
-                "missing per-contract artifact family: analysis_percontract_*.md"
-            )
-
-        for name in owned:
-            path = root / name
-            if path.stat().st_size < RESCAN_MIN_BYTES:
-                issues.append(
-                    f"stub rescan artifact: {name} (<{RESCAN_MIN_BYTES} bytes)"
-                )
-
-        duplicates = duplicate_rescan_outputs_from_first_pass(root)
-        if duplicates:
-            issues.extend(duplicates)
+        issues = rescan_prerequisite_issues(root)
 
         forbidden = forbidden_rescan_artifacts(root)
         if forbidden:
             issues.append(
                 "rescan phase wrote artifact(s) outside rescan-owned families: "
+                + ", ".join(forbidden[:12])
+            )
+        return issues
+    if phase_name == "inventory":
+        root = Path(scratchpad)
+        issues = rescan_prerequisite_issues(root)
+        issues.extend(inventory_source_size_issues(root))
+        issues.extend(_inventory_structure_issues(root))
+        forbidden = forbidden_inventory_artifacts(root)
+        if forbidden:
+            issues.append(
+                "inventory phase wrote forbidden later-phase or legacy artifact(s): "
                 + ", ".join(forbidden[:12])
             )
         return issues

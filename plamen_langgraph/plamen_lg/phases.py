@@ -7,8 +7,12 @@ from typing import Any
 
 from .artifacts import (
     BREADTH_MIN_BYTES,
+    INVENTORY_MAX_SOURCE_BYTES,
+    INVENTORY_MAX_SOURCE_FILES,
+    INVENTORY_MIN_BYTES,
     RESCAN_MIN_BYTES,
     expected_breadth_artifacts,
+    inventory_source_files,
     rescan_outputs,
 )
 
@@ -151,6 +155,14 @@ def get_phase(name: str, pipeline: str = "sc") -> Any:
             base_timeout_s=4800,
             critical=True,
         )
+    if name == "inventory":
+        return SimplePhase(
+            name="inventory",
+            section_markers=["LangGraph inventory"],
+            expected_artifacts=["findings_inventory.md"],
+            base_timeout_s=3600,
+            critical=True,
+        )
     phases = _load_sc_phases()
     if phases:
         for phase in phases:
@@ -192,6 +204,16 @@ def _read_phase3_methodology() -> str:
 
 def _read_phase4_methodology() -> str:
     return _langgraph_prompt_path("phase4-rescan.md").read_text(encoding="utf-8")
+
+
+def _read_phase5_methodology() -> str:
+    return (
+        _repo_root()
+        / "prompts"
+        / "shared"
+        / "v2"
+        / "phase4a-inventory-base.md"
+    ).read_text(encoding="utf-8")
 
 
 def build_recon_prompt(config: dict[str, Any]) -> str:
@@ -590,6 +612,98 @@ exactly one concise summary:
 """
 
 
+def build_inventory_prompt(
+    config: dict[str, Any],
+    source_files: list[str] | None = None,
+) -> str:
+    """Build a direct-execution prompt for single-phase inventory synthesis."""
+    methodology = _read_phase5_methodology().strip()
+    project_root = _none_if_blank(config.get("project_root"))
+    scratchpad = _none_if_blank(config.get("scratchpad"))
+    db_path = _none_if_blank(config.get("db_path"))
+    language = _none_if_blank(config.get("language", "evm"))
+    mode = _none_if_blank(config.get("mode", "core"))
+    pipeline = _none_if_blank(config.get("pipeline", "sc"))
+    sources = (
+        list(source_files)
+        if source_files is not None
+        else inventory_source_files(str(config.get("scratchpad") or ""))
+    )
+    source_list = (
+        "\n".join(f"- `{name}`" for name in sources)
+        if sources
+        else "- `(none; fail before running if this remains true)`"
+    )
+    scratch_root = Path(str(config.get("scratchpad") or ""))
+    total_source_bytes = 0
+    for name in sources:
+        path = scratch_root / name
+        if path.is_file():
+            total_source_bytes += path.stat().st_size
+
+    return f"""# Plamen LangGraph Inventory Direct-Execution Prompt
+
+You are running only the `inventory` phase of Plamen's smart-contract audit
+pipeline. This prompt is generated directly by `plamen_langgraph`; use the
+inventory methodology below only to consolidate discovery outputs into one
+canonical `findings_inventory.md`.
+
+## Configuration
+
+- Project root: `{project_root}`
+- Scratchpad: `{scratchpad}`
+- LangGraph database: `{db_path}`
+- Pipeline: `{pipeline}`
+- Mode: `{mode}`
+- Language: `{language}`
+- Required output artifact: `findings_inventory.md`
+- Inventory minimum output size: `{INVENTORY_MIN_BYTES}` bytes
+- Inventory source file count: `{len(sources)}`
+- Inventory source byte total: `{total_source_bytes}`
+- Inventory source file limit: `{INVENTORY_MAX_SOURCE_FILES}`
+- Inventory source byte limit: `{INVENTORY_MAX_SOURCE_BYTES}`
+
+## Authoritative Discovery Source Files
+
+The source list below is authoritative. Do not invent additional discovery
+source files, skip listed files, or read stale legacy `.scratchpad` discovery
+outputs as inventory inputs.
+
+{source_list}
+
+## Hard Scope
+
+1. Execute inventory only. Do not run semantic invariants, depth, RAG, chain
+   analysis, verification, scoring, report index, report writing, or report
+   assembly.
+2. Read recon artifacts and the authoritative discovery source files above as
+   read-only inputs.
+3. Write only `findings_inventory.md`, `violations.md`, and optional `_lg_`
+   debug notes under the scratchpad.
+4. Do not write `findings_inventory_chunk_*.md`,
+   `inventory_shard_plan.md`, or `inventory_chunk_*.manifest.md`.
+5. Do not edit target source files, dependency manifests, git metadata, legacy
+   `.scratchpad`, or `_v2_checkpoint.json`.
+6. Do not call Task, launch subagents, or delegate work to other workers.
+7. The `Source Summary` section must include one row for every authoritative
+   discovery source file listed above.
+8. The final `findings_inventory.md` must include `Source Summary`,
+   `Master Table`, `Per-Finding Detail`, and these field labels:
+   `Finding ID`, `Title`, `Severity`, `Verdict`, `Location`, `Source IDs`,
+   `Root Cause`, and `Preferred Tag`.
+
+## Inventory Methodology
+
+{methodology}
+
+## Return
+
+After `findings_inventory.md` is written and self-checked, return exactly one
+concise summary:
+`INVENTORY COMPLETE: <source_count> source files consolidated, <finding_count> findings inventoried, limitations: <short list>`.
+"""
+
+
 def build_phase_prompt(
     name: str,
     config: dict[str, Any],
@@ -603,6 +717,8 @@ def build_phase_prompt(
         return build_breadth_prompt(config, open_outputs=open_outputs)
     if name == "rescan":
         return build_rescan_prompt(config)
+    if name == "inventory":
+        return build_inventory_prompt(config)
     raise ValueError(f"unsupported LangGraph phase: {name}")
 
 

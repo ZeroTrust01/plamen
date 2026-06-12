@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from plamen_langgraph.cli import _build_parser
+import pytest
+
+from plamen_langgraph.cli import _build_parser, main
 
 
 def test_instantiate_cli_parses_same_options_as_recon(tmp_path):
@@ -117,6 +119,44 @@ def test_rescan_cli_parses_same_options_as_breadth(tmp_path):
     assert args.timeout_s == 789
 
 
+def test_inventory_cli_parses_same_options_as_rescan(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    scratch = tmp_path / "scratch"
+    db = tmp_path / "state.sqlite"
+
+    args = _build_parser().parse_args(
+        [
+            "inventory",
+            str(project),
+            "--mode",
+            "core",
+            "--pipeline",
+            "sc",
+            "--language",
+            "sui",
+            "--scratchpad",
+            str(scratch),
+            "--db",
+            str(db),
+            "--codex-bin",
+            "codex-test",
+            "--timeout-s",
+            "321",
+        ]
+    )
+
+    assert args.command == "inventory"
+    assert args.project_root == str(project)
+    assert args.mode == "core"
+    assert args.pipeline == "sc"
+    assert args.language == "sui"
+    assert args.scratchpad == str(scratch)
+    assert args.db_path == str(db)
+    assert args.codex_bin == "codex-test"
+    assert args.timeout_s == 321
+
+
 def test_single_node_cli_options_preserve_target_phase(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
@@ -151,3 +191,32 @@ def test_single_node_cli_allows_omitted_base_run_id(tmp_path):
     assert args.command == "rescan"
     assert args.single_node is True
     assert args.base_run_id is None
+
+
+def test_inventory_single_node_cli_requires_base_run_id(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    with pytest.raises(SystemExit) as exc:
+        main(["inventory", str(project), "--single-node"])
+
+    assert exc.value.code == 2
+
+
+def test_inventory_single_node_cli_parses_base_run_id(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    args = _build_parser().parse_args(
+        [
+            "inventory",
+            str(project),
+            "--single-node",
+            "--base-run-id",
+            "run-123",
+        ]
+    )
+
+    assert args.command == "inventory"
+    assert args.single_node is True
+    assert args.base_run_id == "run-123"

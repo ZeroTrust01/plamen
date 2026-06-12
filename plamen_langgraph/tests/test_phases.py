@@ -5,6 +5,7 @@ from plamen_langgraph.plamen_lg.config import build_config
 from plamen_langgraph.plamen_lg.phases import (
     build_breadth_prompt,
     build_instantiate_prompt,
+    build_inventory_prompt,
     build_recon_prompt,
     build_rescan_prompt,
     expected_phase_artifacts,
@@ -30,6 +31,16 @@ def test_langgraph_methodology_prompts_are_local_to_langgraph():
         assert langgraph_path.exists()
         assert legacy_path.exists()
         assert reader() == langgraph_path.read_text(encoding="utf-8")
+
+
+def test_inventory_methodology_uses_shared_v2_base():
+    root = phase_module._repo_root()
+    shared_path = root / "prompts" / "shared" / "v2" / "phase4a-inventory-base.md"
+
+    assert shared_path.exists()
+    assert phase_module._read_phase5_methodology() == shared_path.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_langgraph_recon_prompt_is_direct_exec(tmp_path):
@@ -187,4 +198,39 @@ def test_langgraph_rescan_prompt_uses_direct_mandatory_methodology(tmp_path):
     assert "Primary outputs owned by this phase" in prompt
     assert "V2 driver's `rescan` subprocess" not in prompt
     assert "Task(" not in prompt
+    assert "_v2_checkpoint.json" in prompt
+
+
+def test_inventory_phase_metadata_is_langgraph_owned():
+    phase = get_phase("inventory", "sc")
+
+    assert phase.name == "inventory"
+    assert phase.section_markers == ["LangGraph inventory"]
+    assert expected_phase_artifacts("inventory") == ["findings_inventory.md"]
+
+
+def test_langgraph_inventory_prompt_uses_single_phase_methodology(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    scratch = project / ".lg_scratchpad"
+    scratch.mkdir()
+    (scratch / "analysis_core_state.md").write_text("breadth", encoding="utf-8")
+    (scratch / "analysis_rescan_gap_review.md").write_text("rescan", encoding="utf-8")
+    config = build_config(project, language="evm", mode="core").to_dict()
+
+    prompt = build_inventory_prompt(
+        config,
+        source_files=["analysis_core_state.md", "analysis_rescan_gap_review.md"],
+    )
+
+    assert prompt.startswith("# Plamen LangGraph Inventory Direct-Execution Prompt")
+    assert "Phase 4a: Inventory Agent Base Methodology" in prompt
+    assert "`analysis_core_state.md`" in prompt
+    assert "`analysis_rescan_gap_review.md`" in prompt
+    assert "Required output artifact: `findings_inventory.md`" in prompt
+    assert "The source list below is authoritative" in prompt
+    assert "Write only `findings_inventory.md`, `violations.md`" in prompt
+    assert "Do not write `findings_inventory_chunk_*.md`" in prompt
+    assert "Do not run semantic invariants, depth, RAG, chain" in prompt
+    assert "Do not call Task, launch subagents" in prompt
     assert "_v2_checkpoint.json" in prompt

@@ -5,13 +5,18 @@ from dataclasses import dataclass
 from plamen_langgraph.plamen_lg.config import build_config
 from plamen_langgraph.plamen_lg.artifacts import (
     BREADTH_MIN_BYTES,
+    INVENTORY_MAX_SOURCE_BYTES,
+    INVENTORY_MAX_SOURCE_FILES,
+    INVENTORY_MIN_BYTES,
     RESCAN_MIN_BYTES,
     expected_breadth_artifacts,
+    inventory_source_files,
 )
 from plamen_langgraph.plamen_lg.graph import (
     run_breadth_graph,
     run_graph,
     run_instantiate_graph,
+    run_inventory_graph,
     run_phase_node,
     run_recon_graph,
     run_rescan_graph,
@@ -57,6 +62,7 @@ class FakeRunner:
         write_instantiate_artifact: bool = True,
         write_breadth_artifacts: bool = True,
         write_rescan_artifacts: bool = True,
+        write_inventory_artifact: bool = True,
         manifest_text: str = VALID_SPAWN_MANIFEST,
         returncodes: dict[str, int] | None = None,
     ) -> None:
@@ -65,13 +71,16 @@ class FakeRunner:
         self.write_instantiate_artifact = write_instantiate_artifact
         self.write_breadth_artifacts = write_breadth_artifacts
         self.write_rescan_artifacts = write_rescan_artifacts
+        self.write_inventory_artifact = write_inventory_artifact
         self.manifest_text = manifest_text
         self.returncodes = returncodes or {}
         self.calls = []
 
     def run(self, prompt, project_root, scratchpad, output_paths, timeout_s):
         stdout_path = str(output_paths["stdout_path"])
-        if "_lg_rescan_" in stdout_path:
+        if "_lg_inventory_" in stdout_path:
+            phase = "inventory"
+        elif "_lg_rescan_" in stdout_path:
             phase = "rescan"
         elif "_lg_breadth_" in stdout_path:
             phase = "breadth"
@@ -122,6 +131,8 @@ class FakeRunner:
                 + ("new per-contract evidence " * RESCAN_MIN_BYTES),
                 encoding="utf-8",
             )
+        if phase == "inventory" and self.write_inventory_artifact:
+            write_inventory_artifact(output_paths["stdout_path"].parent)
         return FakeResult(
             stdout_path=str(output_paths["stdout_path"]),
             stderr_path=str(output_paths["stderr_path"]),
@@ -146,6 +157,53 @@ def write_breadth_artifacts(scratch) -> None:
             f"# {name}\n\n" + ("seeded breadth artifact " * BREADTH_MIN_BYTES),
             encoding="utf-8",
         )
+
+
+def write_rescan_artifacts(scratch) -> None:
+    (scratch / "analysis_rescan_gap_review.md").write_text(
+        "# Rescan gap review\n\n" + ("seeded rescan artifact " * RESCAN_MIN_BYTES),
+        encoding="utf-8",
+    )
+    (scratch / "analysis_percontract_scope_review.md").write_text(
+        "# Per-contract scope review\n\n"
+        + ("seeded per-contract artifact " * RESCAN_MIN_BYTES),
+        encoding="utf-8",
+    )
+
+
+def inventory_body(source_files: list[str]) -> str:
+    source_rows = "\n".join(
+        f"| {name} | 1 | 1 | 1 |" for name in source_files
+    )
+    return (
+        "# Findings Inventory\n\n"
+        "## Source Summary\n\n"
+        "| Source File | Pre-Dedup Findings | Post-Dedup Findings | Notes |\n"
+        "|-------------|--------------------|---------------------|-------|\n"
+        f"{source_rows}\n\n"
+        "## Master Table\n\n"
+        "| # | Finding ID | Title | Severity | Verdict | Location | Source IDs | Root Cause | Preferred Tag |\n"
+        "|---|------------|-------|----------|---------|----------|------------|------------|---------------|\n"
+        "| 1 | [CS-1] | Example issue | Medium | CONFIRMED | src/A.sol:1 | B1 | Missing validation | [CODE] |\n\n"
+        "## Per-Finding Detail\n\n"
+        "### [CS-1] Example issue\n\n"
+        "Finding ID: [CS-1]\n"
+        "Title: Example issue\n"
+        "Severity: Medium\n"
+        "Verdict: CONFIRMED\n"
+        "Location: src/A.sol:1\n"
+        "Source IDs: B1\n"
+        "Root Cause: Missing validation.\n"
+        "Preferred Tag: [CODE]\n\n"
+        + ("Detailed preserved evidence. " * INVENTORY_MIN_BYTES)
+    )
+
+
+def write_inventory_artifact(scratch) -> None:
+    (scratch / "findings_inventory.md").write_text(
+        inventory_body(inventory_source_files(scratch)),
+        encoding="utf-8",
+    )
 
 
 def seed_base_run(
@@ -773,3 +831,234 @@ def test_single_node_rescan_requires_successful_breadth_and_artifacts(tmp_path):
     assert "successful breadth" in (state["error"] or "")
     assert "missing first-pass breadth artifact" in (state["error"] or "")
     assert runner.calls == []
+
+
+def test_mocked_inventory_runs_full_prefix(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    runner = FakeRunner(write_artifacts=True, write_instantiate_artifact=True)
+
+    state = run_inventory_graph(config, runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["completed_phases"] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+    ]
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+    ]
+    scratch = project / ".lg_scratchpad"
+    assert (scratch / "_lg_inventory_prompt.md").exists()
+    assert (scratch / "findings_inventory.md").exists()
+    assert not (scratch / "_v2_checkpoint.json").exists()
+    assert not (project / ".scratchpad").exists()
+
+    store = StateStore(config.db_path)
+    run = store.fetch_one(
+        "select phase, execution_mode, base_run_id, status from runs where id = ?",
+        (state["run_id"],),
+    )
+    phases = store.fetch_all(
+        "select phase_name, status from phase_runs where run_id = ? order by started_at",
+        (state["run_id"],),
+    )
+    inventory_artifacts = store.fetch_all(
+        "select phase_name, path, [exists] from artifacts "
+        "where run_id = ? and phase_name = 'inventory'",
+        (state["run_id"],),
+    )
+
+    assert run == {
+        "phase": "inventory",
+        "execution_mode": "prefix",
+        "base_run_id": None,
+        "status": "succeeded",
+    }
+    assert phases == [
+        {"phase_name": "recon", "status": "succeeded"},
+        {"phase_name": "instantiate", "status": "succeeded"},
+        {"phase_name": "breadth", "status": "succeeded"},
+        {"phase_name": "rescan", "status": "succeeded"},
+        {"phase_name": "inventory", "status": "succeeded"},
+    ]
+    assert len(inventory_artifacts) == 1
+    assert inventory_artifacts[0]["phase_name"] == "inventory"
+    assert inventory_artifacts[0]["path"].endswith("findings_inventory.md")
+    assert inventory_artifacts[0]["exists"] == 1
+
+
+def test_inventory_is_skipped_when_rescan_fails(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    runner = FakeRunner(
+        write_artifacts=True,
+        write_instantiate_artifact=True,
+        write_breadth_artifacts=True,
+        write_rescan_artifacts=False,
+    )
+
+    state = run_graph(config, target_phase="inventory", runner=runner)
+
+    assert state["status"] == "failed"
+    assert state["failed_phase"] == "rescan"
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+    ]
+
+
+def test_inventory_fails_when_output_missing(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    runner = FakeRunner(
+        write_artifacts=True,
+        write_instantiate_artifact=True,
+        write_breadth_artifacts=True,
+        write_rescan_artifacts=True,
+        write_inventory_artifact=False,
+    )
+
+    state = run_inventory_graph(config, runner=runner)
+
+    assert state["status"] == "failed"
+    assert state["failed_phase"] == "inventory"
+    assert "missing inventory artifact: findings_inventory.md" in (state["error"] or "")
+
+
+def test_single_node_inventory_uses_successful_rescan_base_run(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    seed_base_run(config, "base-run", ["recon", "instantiate", "breadth", "rescan"])
+    runner = FakeRunner(write_artifacts=False, write_instantiate_artifact=False)
+
+    state = run_phase_node(config, "inventory", base_run_id="base-run", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["execution_mode"] == "single_node"
+    assert state["base_run_id"] == "base-run"
+    assert [call["phase"] for call in runner.calls] == ["inventory"]
+
+    store = StateStore(config.db_path)
+    run = store.fetch_one(
+        "select phase, execution_mode, base_run_id, status from runs where id = ?",
+        (state["run_id"],),
+    )
+    phases = store.fetch_all(
+        "select phase_name from phase_runs where run_id = ?",
+        (state["run_id"],),
+    )
+
+    assert run == {
+        "phase": "inventory",
+        "execution_mode": "single_node",
+        "base_run_id": "base-run",
+        "status": "succeeded",
+    }
+    assert phases == [{"phase_name": "inventory"}]
+
+
+def test_single_node_inventory_requires_successful_rescan_and_artifacts(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    seed_base_run(config, "base-run", ["recon", "instantiate", "breadth"])
+    runner = FakeRunner()
+
+    state = run_phase_node(config, "inventory", base_run_id="base-run", runner=runner)
+
+    assert state["status"] == "failed"
+    assert "successful rescan" in (state["error"] or "")
+    assert "missing rescan artifact family" in (state["error"] or "")
+    assert runner.calls == []
+
+
+def _large_spawn_manifest(count: int) -> str:
+    rows = "\n".join(
+        "| AGENT | CORE_STATE | YES | B{idx} | focus_{idx} | analysis_focus_{idx}.md | QUEUED |".format(
+            idx=idx
+        )
+        for idx in range(count)
+    )
+    return (
+        "# Spawn Manifest\n\n"
+        "| Row Type | Template | Required? | Agent ID | Focus Area | Expected Output | Status |\n"
+        "|----------|----------|-----------|----------|------------|-----------------|--------|\n"
+        f"{rows}\n"
+    )
+
+
+def test_inventory_source_count_limit_fails_before_runner(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    source_count = INVENTORY_MAX_SOURCE_FILES + 1
+    (scratch / "spawn_manifest.md").write_text(
+        _large_spawn_manifest(source_count),
+        encoding="utf-8",
+    )
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    seed_base_run(config, "base-run", ["recon", "instantiate", "breadth", "rescan"])
+    runner = FakeRunner()
+
+    state = run_phase_node(config, "inventory", base_run_id="base-run", runner=runner)
+
+    assert state["status"] == "failed"
+    assert (
+        "inventory source set too large; needs sharded inventory support"
+        in (state["error"] or "")
+    )
+    assert runner.calls == []
+    assert not (scratch / "_lg_inventory_prompt.md").exists()
+
+
+def test_inventory_source_byte_limit_fails_before_runner(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    for name in expected_breadth_artifacts(scratch):
+        (scratch / name).write_text(
+            "x" * (INVENTORY_MAX_SOURCE_BYTES + 1),
+            encoding="utf-8",
+        )
+    write_rescan_artifacts(scratch)
+    seed_base_run(config, "base-run", ["recon", "instantiate", "breadth", "rescan"])
+    runner = FakeRunner()
+
+    state = run_phase_node(config, "inventory", base_run_id="base-run", runner=runner)
+
+    assert state["status"] == "failed"
+    assert (
+        "inventory source set too large; needs sharded inventory support"
+        in (state["error"] or "")
+    )
+    assert runner.calls == []
+    assert not (scratch / "_lg_inventory_prompt.md").exists()

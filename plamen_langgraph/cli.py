@@ -78,6 +78,14 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     add_common_options(rescan)
+    inventory = sub.add_parser(
+        "inventory",
+        help=(
+            "Run the supported inventory graph prefix: "
+            "recon -> instantiate -> breadth -> rescan -> inventory."
+        ),
+    )
+    add_common_options(inventory)
     return parser
 
 
@@ -91,7 +99,10 @@ def _suppress_known_dependency_warnings() -> None:
 
 def main(argv: list[str] | None = None) -> int:
     _suppress_known_dependency_warnings()
-    args = _build_parser().parse_args(argv)
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "inventory" and args.single_node and not args.base_run_id:
+        parser.error("inventory single-node mode requires --base-run-id")
 
     config = build_config(
         project_root=args.project_root,
