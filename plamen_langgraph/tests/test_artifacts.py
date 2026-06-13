@@ -16,12 +16,10 @@ from plamen_langgraph.plamen_lg.artifacts import (
     expected_depth_artifact_groups,
     expected_invariants_artifacts,
     expected_inventory_artifacts,
-    expected_sc_semantic_dedup_artifacts,
     first_pass_breadth_issues,
     invariants_prerequisite_issues,
     inventory_source_files,
     inventory_source_size_issues,
-    sc_semantic_dedup_prerequisite_issues,
     validate_phase_artifacts,
     validate_spawn_manifest_schema,
 )
@@ -660,88 +658,4 @@ def test_depth_validator_rejects_missing_stub_incomplete_and_forbidden_outputs(t
     assert any("depth_external_findings.md missing investigated candidates" in issue for issue in issues)
     assert any("forbidden downstream or legacy" in issue for issue in issues)
     assert any("rag_validation.md" in issue for issue in issues)
-    assert any("_v2_checkpoint.json" in issue for issue in issues)
-
-
-def test_sc_semantic_dedup_validator_accepts_passthrough_without_live_pairs(tmp_path):
-    scratch = tmp_path / ".lg_scratchpad"
-    _write_invariants_prerequisites(scratch)
-    _write_depth_outputs(scratch, "light")
-    (scratch / "dedup_candidate_pairs.md").write_text(
-        "# Dedup Candidate Pairs\n\nNo candidate duplicate pairs found.\n",
-        encoding="utf-8",
-    )
-    (scratch / "findings_inventory_deduped.md").write_text(
-        _valid_inventory_body(inventory_source_files(scratch)),
-        encoding="utf-8",
-    )
-    (scratch / "dedup_decisions.md").write_text(
-        "# Semantic Dedup Decisions\n\n"
-        "**Status**: PASSTHROUGH\n\n"
-        "**Reason**: no candidate pairs and no LIKELY-DUP tags.\n",
-        encoding="utf-8",
-    )
-
-    assert expected_sc_semantic_dedup_artifacts(scratch) == [
-        "dedup_decisions.md",
-        "findings_inventory_deduped.md",
-    ]
-    assert sc_semantic_dedup_prerequisite_issues(scratch, "light") == []
-    assert validate_phase_artifacts("sc_semantic_dedup", scratch, [], mode="light") == []
-
-
-def test_sc_semantic_dedup_validator_rejects_live_pair_passthrough(tmp_path):
-    scratch = tmp_path / ".lg_scratchpad"
-    _write_invariants_prerequisites(scratch)
-    _write_depth_outputs(scratch, "light")
-    (scratch / "dedup_candidate_pairs.md").write_text(
-        "# Dedup Candidate Pairs\n\n"
-        "| Finding A | Finding B | Title Score | Signal(s) | Same Sev? |\n"
-        "|-----------|-----------|-------------|-----------|-----------|\n"
-        "| CS-1: Example issue | CS-2: Example issue | 1.00 | title overlap 1.00 | Yes |\n",
-        encoding="utf-8",
-    )
-    (scratch / "findings_inventory_deduped.md").write_text(
-        _valid_inventory_body(inventory_source_files(scratch)),
-        encoding="utf-8",
-    )
-    (scratch / "dedup_decisions.md").write_text(
-        "# Semantic Dedup Decisions\n\n"
-        "**Status**: BUDGET_GUARD_PASSTHROUGH\n\n"
-        "**Reason**: legacy budget guard preservation.\n",
-        encoding="utf-8",
-    )
-
-    issues = validate_phase_artifacts("sc_semantic_dedup", scratch, [], mode="light")
-
-    assert any("PASSTHROUGH decisions despite live candidate pairs" in issue for issue in issues)
-
-
-def test_sc_semantic_dedup_validator_rejects_canceled_and_downstream_outputs(tmp_path):
-    scratch = tmp_path / ".lg_scratchpad"
-    _write_invariants_prerequisites(scratch)
-    _write_depth_outputs(scratch, "light")
-    (scratch / "dedup_candidate_pairs.md").write_text(
-        "# Dedup Candidate Pairs\n\nNo candidate duplicate pairs found.\n",
-        encoding="utf-8",
-    )
-    (scratch / "findings_inventory_deduped.md").write_text(
-        _valid_inventory_body(inventory_source_files(scratch)),
-        encoding="utf-8",
-    )
-    (scratch / "dedup_decisions.md").write_text(
-        "# Semantic Dedup Decisions\n\n## Summary\n- Live pairs evaluated: 0\n",
-        encoding="utf-8",
-    )
-    (scratch / "attention_repair_summary.md").write_text("canceled", encoding="utf-8")
-    (scratch / "rag_validation.md").write_text("canceled", encoding="utf-8")
-    (scratch / "chain_hypotheses.md").write_text("downstream", encoding="utf-8")
-    (scratch / "_v2_checkpoint.json").write_text("{}", encoding="utf-8")
-
-    issues = validate_phase_artifacts("sc_semantic_dedup", scratch, [], mode="light")
-
-    assert any("forbidden downstream, canceled" in issue for issue in issues)
-    assert any("attention_repair_summary.md" in issue for issue in issues)
-    assert any("rag_validation.md" in issue for issue in issues)
-    assert any("chain_hypotheses.md" in issue for issue in issues)
     assert any("_v2_checkpoint.json" in issue for issue in issues)

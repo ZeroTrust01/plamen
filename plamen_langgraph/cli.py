@@ -103,15 +103,6 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     add_common_options(depth)
-    sc_semantic_dedup = sub.add_parser(
-        "sc_semantic_dedup",
-        help=(
-            "Run the supported SC semantic dedup graph prefix. Light mode runs "
-            "recon -> instantiate -> breadth -> rescan -> inventory -> depth -> "
-            "sc_semantic_dedup; Core/Thorough insert invariants before depth."
-        ),
-    )
-    add_common_options(sc_semantic_dedup)
     return parser
 
 

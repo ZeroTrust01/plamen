@@ -14,10 +14,9 @@ writes one semantic invariant Pass 1 artifact, `semantic_invariants.md`.
 The `depth` node extends the prefix to the first adaptive depth boundary:
 Light mode runs `recon -> instantiate -> breadth -> rescan -> inventory ->
 depth`, while Core and Thorough run `recon -> instantiate -> breadth ->
-rescan -> inventory -> invariants -> depth`. The `sc_semantic_dedup` node
-extends the prefix directly after depth. LangGraph intentionally cancels
-`attention_repair` and `rag_sweep`; they are not predecessors, outputs, or
-completion evidence for semantic dedup.
+rescan -> inventory -> invariants -> depth`. Semantic deduplication is no
+longer modeled as a standalone LangGraph phase; future dedup work belongs in
+the verification stage.
 
 LangGraph-owned prompt bodies live in `plamen_langgraph/prompts/`. The legacy
 driver keeps using `prompts/shared/v2/`; these copies are intentionally separate
@@ -34,8 +33,6 @@ python -m plamen_langgraph.cli inventory /path/to/project
 python -m plamen_langgraph.cli invariants /path/to/project --mode core
 python -m plamen_langgraph.cli depth /path/to/project --mode light
 python -m plamen_langgraph.cli depth /path/to/project --mode core
-python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project --mode light
-python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project --mode core
 ```
 
 `instantiate` always runs `recon` first. `breadth` always runs `recon` and
@@ -51,11 +48,6 @@ phases do not call Codex and do not create phase rows.
 `state_variables.md` when `semantic_invariants.md` is absent. Core and
 Thorough mode require a successful `invariants` predecessor and a valid
 `semantic_invariants.md` before depth starts.
-
-`sc_semantic_dedup` runs in every mode after successful depth. Light mode runs
-`recon -> instantiate -> breadth -> rescan -> inventory -> depth ->
-sc_semantic_dedup`; Core and Thorough run `recon -> instantiate -> breadth ->
-rescan -> inventory -> invariants -> depth -> sc_semantic_dedup`.
 
 For failed-tail recovery, single-node mode infers the latest successful direct
 predecessor from the LangGraph state DB before running only the requested node:
@@ -75,9 +67,6 @@ python -m plamen_langgraph.cli invariants /path/to/project \
 
 python -m plamen_langgraph.cli depth /path/to/project \
   --single-node
-
-python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project \
-  --single-node
 ```
 
 Pass `--base-run-id <run-id>` only when you need to override the inferred
@@ -88,8 +77,7 @@ latest successful `inventory` run for the same project and scratchpad, then
 validates the completed discovery and inventory chain before invoking Codex.
 Depth single-node mode infers the latest successful direct predecessor for the
 same project and scratchpad: `inventory` in Light mode, `invariants` in Core
-and Thorough mode. SC semantic dedup single-node mode infers the latest
-successful `depth` run for the same project and scratchpad.
+and Thorough mode.
 
 Before inventory invokes Codex, it revalidates breadth and rescan artifacts and
 checks the discovery source set against the configured single-pass limits. If
@@ -109,22 +97,6 @@ mode-required depth outputs, `confidence_scores.md` when required,
 `adaptive_loop_log.md` if useful, `violations.md`, and `_lg_` debug files.
 RAG, chain, verification, report, and legacy checkpoint artifacts do not
 satisfy depth completion.
-
-Before SC semantic dedup invokes Codex, LangGraph revalidates depth
-prerequisites and writes a bounded LangGraph-owned candidate packet:
-`dedup_candidate_pairs.md` and, when useful, `dedup_focus_inventory.md`.
-If there are no candidate pairs and no `LIKELY-DUP` tags, the node writes a
-deterministic passthrough `dedup_decisions.md` and
-`findings_inventory_deduped.md` without invoking Codex. If live candidate pairs
-exist, LangGraph invokes Codex with the bounded packet even when the full
-candidate set is larger than one pass; overflow pairs remain traceability-only
-deferred work in `dedup_candidate_pairs_full.md`. After a successful
-semantic-dedup run, LangGraph validates `findings_inventory_deduped.md`, backs
-up the previous inventory to `findings_inventory_pre_dedup.md`, swaps the
-deduped file into `findings_inventory.md`, and writes a lightweight
-`finding_records.json`. `attention_repair_summary.md`, `rag_validation.md`,
-chain, verification, report, and legacy checkpoint artifacts do not satisfy
-SC semantic dedup completion.
 
 Useful options:
 
@@ -175,11 +147,6 @@ project's `.lg_scratchpad`:
 - `_lg_depth_stderr.log`
 - `_lg_depth_events.jsonl`
 - `_lg_depth_last_message.md`
-- `_lg_sc_semantic_dedup_prompt.md`
-- `_lg_sc_semantic_dedup_stdout.log`
-- `_lg_sc_semantic_dedup_stderr.log`
-- `_lg_sc_semantic_dedup_events.jsonl`
-- `_lg_sc_semantic_dedup_last_message.md`
 - `spawn_manifest.md`
 - manifest-derived first-pass `analysis_*.md` files
 - `analysis_rescan_*.md` files
@@ -190,12 +157,6 @@ project's `.lg_scratchpad`:
   `depth_state_trace_findings.md`, `depth_edge_case_findings.md`,
   `depth_external_findings.md`, scanner/blind-spot outputs,
   `confidence_scores.md`, and Thorough-only stress/perturbation/skill outputs
-- `dedup_candidate_pairs.md`
-- `dedup_focus_inventory.md` when live candidate pairs exist
-- `dedup_decisions.md`
-- `findings_inventory_deduped.md`
-- `findings_inventory_pre_dedup.md` after a successful swap
-- `finding_records.json` after a successful swap
 
 It does not update legacy checkpoints such as `_v2_checkpoint.json` or write
 to the legacy `.scratchpad` directory unless `--scratchpad` explicitly points
@@ -235,10 +196,3 @@ The depth gate is mode-aware. Light requires the four standard depth outputs:
 depth output must be substantial and include a heading, investigated
 candidates or explicit no-finding rationale, evidence, verdict/disposition,
 and limitations or unresolved evidence gaps.
-
-The SC semantic dedup gate is SC-only and inventory-based. It requires
-`dedup_decisions.md` and `findings_inventory_deduped.md`; the deduped inventory
-must remain structurally valid. If live candidate pairs exist, an unchanged
-`PASSTHROUGH` decision is rejected. LangGraph semantic dedup does not reuse
-legacy private mechanical helpers and does not run the canceled
-`attention_repair` or `rag_sweep` stages.

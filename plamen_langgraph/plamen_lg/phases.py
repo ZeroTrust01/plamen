@@ -13,10 +13,8 @@ from .artifacts import (
     INVENTORY_MAX_SOURCE_FILES,
     INVENTORY_MIN_BYTES,
     RESCAN_MIN_BYTES,
-    SC_SEMANTIC_DEDUP_MIN_BYTES,
     expected_breadth_artifacts,
     expected_depth_artifact_groups,
-    expected_sc_semantic_dedup_artifacts,
     inventory_source_files,
     rescan_outputs,
 )
@@ -152,6 +150,8 @@ def get_recon_phase(pipeline: str = "sc") -> Any:
 def get_phase(name: str, pipeline: str = "sc") -> Any:
     if pipeline != "sc":
         raise ValueError("LangGraph Phase 2 supports only the smart-contract pipeline: sc")
+    if name == "sc_semantic_dedup":
+        raise ValueError(f"unsupported LangGraph phase: {name}")
     if name == "rescan":
         return SimplePhase(
             name="rescan",
@@ -182,14 +182,6 @@ def get_phase(name: str, pipeline: str = "sc") -> Any:
             section_markers=["LangGraph depth"],
             expected_artifacts=["depth_*_findings.md"],
             base_timeout_s=7200,
-            critical=True,
-        )
-    if name == "sc_semantic_dedup":
-        return SimplePhase(
-            name="sc_semantic_dedup",
-            section_markers=["LangGraph sc_semantic_dedup"],
-            expected_artifacts=["dedup_decisions.md", "findings_inventory_deduped.md"],
-            base_timeout_s=3000,
             critical=True,
         )
     phases = _load_sc_phases()
@@ -245,12 +237,6 @@ def _read_invariants_methodology() -> str:
 
 def _read_depth_methodology() -> str:
     return _langgraph_prompt_path("phase7-depth.md").read_text(encoding="utf-8")
-
-
-def _read_sc_semantic_dedup_methodology() -> str:
-    return _langgraph_prompt_path("phase8-sc-semantic-dedup.md").read_text(
-        encoding="utf-8"
-    )
 
 
 def build_recon_prompt(config: dict[str, Any]) -> str:
@@ -899,88 +885,6 @@ exactly one concise summary:
 """
 
 
-def build_sc_semantic_dedup_prompt(config: dict[str, Any]) -> str:
-    """Build a direct-execution prompt for SC semantic dedup."""
-    methodology = _read_sc_semantic_dedup_methodology().strip()
-    project_root = _none_if_blank(config.get("project_root"))
-    scratchpad = _none_if_blank(config.get("scratchpad"))
-    db_path = _none_if_blank(config.get("db_path"))
-    language = _none_if_blank(config.get("language", "evm"))
-    mode = _none_if_blank(config.get("mode", "core")).lower()
-    pipeline = _none_if_blank(config.get("pipeline", "sc"))
-    required_outputs = expected_sc_semantic_dedup_artifacts(
-        str(config.get("scratchpad") or "")
-    )
-    output_list = "\n".join(f"- `{name}`" for name in required_outputs)
-
-    return f"""# Plamen LangGraph Phase 8 SC Semantic Dedup Prompt
-
-You are running only the `sc_semantic_dedup` phase of Plamen's smart-contract
-audit pipeline. This prompt is generated directly by `plamen_langgraph`; use
-the Phase 8 semantic dedup methodology below only to reduce proven duplicate
-SC findings before chain or verification work.
-
-## Configuration
-
-- Project root: `{project_root}`
-- Scratchpad: `{scratchpad}`
-- LangGraph database: `{db_path}`
-- Pipeline: `{pipeline}`
-- Mode: `{mode}`
-- Language: `{language}`
-- Semantic dedup minimum decision size: `{SC_SEMANTIC_DEDUP_MIN_BYTES}` bytes
-
-## Required Input Artifacts
-
-- `findings_inventory.md`
-- mode-required depth artifacts
-- `dedup_candidate_pairs.md`
-- `dedup_focus_inventory.md` if present
-
-The LangGraph driver prepares candidate-pair packets before this prompt runs.
-Treat `findings_inventory.md` as the active inventory and
-`dedup_candidate_pairs.md` as the only live candidate set. Depth artifacts are
-validated prerequisites and context; this phase does not automatically promote
-new depth-only findings into the inventory.
-
-## Required Outputs
-
-{output_list}
-
-`findings_inventory_deduped.md` must remain a valid inventory. The driver swaps
-it into `findings_inventory.md` only after validation succeeds.
-
-## Hard Scope
-
-1. Execute SC semantic dedup only. Do not run attention repair, RAG sweep,
-   chain analysis, verification, skeptic/crossbatch review, final scoring,
-   report index, report writing, or report assembly.
-2. `attention_repair` and `rag_sweep` are canceled in the LangGraph path. Do
-   not require `attention_repair_summary.md` or `rag_validation.md`, and do
-   not write them.
-3. Evaluate only live rows in `dedup_candidate_pairs.md`. Do not read or
-   process `dedup_candidate_pairs_full.md`; it is traceability only.
-4. Read `dedup_focus_inventory.md` when present before falling back to the
-   full `findings_inventory.md`.
-5. Preserve every finding unless a duplicate is proven by same root cause,
-   same fix pattern, and compatible severity.
-6. Do not edit target source files, dependency manifests, git metadata, legacy
-   `.scratchpad`, or `_v2_checkpoint.json`.
-7. Write only `dedup_decisions.md`, `findings_inventory_deduped.md`,
-   `violations.md`, and optional `_lg_` debug notes under the scratchpad.
-
-## SC Semantic Dedup Methodology
-
-{methodology}
-
-## Return
-
-After `dedup_decisions.md` and `findings_inventory_deduped.md` are written and
-self-checked, return exactly one concise summary:
-`SC SEMANTIC DEDUP COMPLETE: <pair_count> live pairs evaluated, <merge_count> merges, <group_count> groups, limitations: <short list>`.
-"""
-
-
 def build_phase_prompt(
     name: str,
     config: dict[str, Any],
@@ -1000,8 +904,6 @@ def build_phase_prompt(
         return build_invariants_prompt(config)
     if name == "depth":
         return build_depth_prompt(config)
-    if name == "sc_semantic_dedup":
-        return build_sc_semantic_dedup_prompt(config)
     raise ValueError(f"unsupported LangGraph phase: {name}")
 
 

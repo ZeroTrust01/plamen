@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from plamen_langgraph.plamen_lg import phases as phase_module
 from plamen_langgraph.plamen_lg.config import build_config
 from plamen_langgraph.plamen_lg.phases import (
@@ -10,7 +12,6 @@ from plamen_langgraph.plamen_lg.phases import (
     build_inventory_prompt,
     build_recon_prompt,
     build_rescan_prompt,
-    build_sc_semantic_dedup_prompt,
     expected_phase_artifacts,
     expected_recon_artifacts,
     get_phase,
@@ -96,29 +97,6 @@ def test_depth_methodology_is_langgraph_owned():
     )
     assert phase_module._read_depth_methodology() != shared_path.read_text(
         encoding="utf-8"
-    )
-
-
-def test_sc_semantic_dedup_methodology_is_langgraph_owned():
-    langgraph_path = phase_module._langgraph_prompt_path(
-        "phase8-sc-semantic-dedup.md"
-    )
-    shared_path = (
-        phase_module._repo_root()
-        / "prompts"
-        / "shared"
-        / "v2"
-        / "phase4e-semantic-dedup.md"
-    )
-
-    assert "plamen_langgraph/prompts" in langgraph_path.as_posix()
-    assert langgraph_path.exists()
-    assert shared_path.exists()
-    assert phase_module._read_sc_semantic_dedup_methodology() == (
-        langgraph_path.read_text(encoding="utf-8")
-    )
-    assert phase_module._read_sc_semantic_dedup_methodology() != (
-        shared_path.read_text(encoding="utf-8")
     )
 
 
@@ -354,6 +332,14 @@ def test_depth_phase_metadata_is_langgraph_owned():
     assert phase.base_timeout_s == 7200
 
 
+def test_sc_semantic_dedup_phase_is_not_supported_by_langgraph():
+    with pytest.raises(ValueError, match="unsupported LangGraph phase"):
+        get_phase("sc_semantic_dedup", "sc")
+
+    with pytest.raises(ValueError, match="unsupported LangGraph phase"):
+        expected_phase_artifacts("sc_semantic_dedup")
+
+
 def test_langgraph_depth_prompt_uses_mode_aware_subagent_methodology(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
@@ -380,35 +366,3 @@ def test_langgraph_depth_prompt_uses_mode_aware_subagent_methodology(tmp_path):
     assert "Phase 4b" not in prompt
     assert "Task(subagent_type=" not in prompt
     assert "Task(" not in prompt
-
-
-def test_sc_semantic_dedup_phase_metadata_is_langgraph_owned():
-    phase = get_phase("sc_semantic_dedup", "sc")
-
-    assert phase.name == "sc_semantic_dedup"
-    assert phase.section_markers == ["LangGraph sc_semantic_dedup"]
-    assert expected_phase_artifacts("sc_semantic_dedup") == [
-        "dedup_decisions.md",
-        "findings_inventory_deduped.md",
-    ]
-    assert phase.base_timeout_s == 3000
-
-
-def test_langgraph_sc_semantic_dedup_prompt_is_sc_only(tmp_path):
-    project = tmp_path / "project"
-    project.mkdir()
-    config = build_config(project, language="evm", mode="core").to_dict()
-
-    prompt = build_sc_semantic_dedup_prompt(config)
-
-    assert prompt.startswith("# Plamen LangGraph Phase 8 SC Semantic Dedup Prompt")
-    assert "Phase 8 SC Semantic Dedup" in prompt
-    assert "`findings_inventory.md`" in prompt
-    assert "`findings_inventory_deduped.md`" in prompt
-    assert "`dedup_decisions.md`" in prompt
-    assert "`verification_queue.md`" not in prompt
-    assert "attention_repair" in prompt
-    assert "rag_sweep" in prompt
-    assert "canceled in the LangGraph path" in prompt
-    assert "does not automatically promote" in prompt
-    assert "_v2_checkpoint.json" in prompt
