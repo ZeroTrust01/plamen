@@ -1,4 +1,4 @@
-# Plamen LangGraph Phase 1-8 Refactor Plan
+# Plamen LangGraph Phase 1-9 Refactor Plan
 
 ## Objective
 
@@ -18,6 +18,8 @@ Phase 7 extends the LangGraph path to the first adaptive depth boundary:
 `depth`.
 Phase 8 extends the same prefix to the smart-contract verification queue
 boundary: `sc_verify_queue`.
+Phase 9 extends the LangGraph path from queue generation to full
+active-candidate verification: `verify`.
 
 The Phase 1 goal is to prove the new architecture can:
 
@@ -123,6 +125,25 @@ The Phase 8 goal is to prove that the architecture can:
   broken, blank IDs would create `verify_.md`, or shard manifests do not cover
   active rows
 - record queue artifacts and phase status in SQLite
+- still avoid legacy driver/checkpoint mutation
+
+The Phase 9 goal is to prove that the architecture can:
+
+- execute a mode-aware verification graph:
+  - Light:
+    `recon -> instantiate -> breadth -> rescan -> inventory -> depth -> sc_verify_queue -> verify`
+  - Core/Thorough:
+    `recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth -> sc_verify_queue -> verify`
+- consume Phase 8's active `verification_queue.md` rows and shard manifests
+  without regenerating the queue
+- verify every active candidate issue by writing one schema-valid
+  `verify_<ID>.md` file per active queue row
+- mechanically rebuild `verify_core.md` from the per-finding verifier files
+- write `verification_results.json` as the machine-readable final verification
+  ledger when practical
+- fail or explicitly mark unresolved rows as `UNVERIFIED` instead of silently
+  dropping candidates
+- record verifier artifacts and phase status in SQLite
 - still avoid legacy driver/checkpoint mutation
 
 ## High-Level Architecture
@@ -280,6 +301,31 @@ new CLI entry
       -> end
 ```
 
+Phase 9 target shape:
+
+```text
+new CLI entry
+  -> LangGraph graph
+      -> recon phase node
+      -> instantiate phase node
+      -> breadth phase node
+      -> rescan phase node
+      -> inventory phase node
+      -> optional invariants phase node (Core/Thorough only)
+      -> depth phase node
+      -> sc_verify_queue phase node
+      -> verify phase node
+          -> verification queue/shard prerequisite gate
+          -> dynamic non-empty shard dispatcher
+          -> CodexRunner per verifier shard
+          -> targeted recovery for missing active IDs
+          -> explicit UNVERIFIED fallback for unresolved active IDs
+          -> mechanical verify_core.md aggregation
+          -> verification result ledger writer
+          -> SQLite state store
+      -> end
+```
+
 Long-term target architecture:
 
 ```text
@@ -319,6 +365,11 @@ verification, and report phases remain follow-on work.
 Phase 8 ports only the SC verification queue boundary. It should run as a
 mechanical LangGraph node, write `verification_queue.md` plus supporting queue
 JSON/shard manifests, and stop before running any verifier shard, aggregate,
+skeptic, crossbatch, report, or legacy checkpoint work.
+Phase 9 ports the SC verification execution boundary. It should consume the
+active queue and shard manifests written by Phase 8, dynamically run only
+non-empty verifier shards inside one `verify` phase node, write every required
+`verify_<ID>.md`, mechanically rebuild `verify_core.md`, and stop before
 skeptic, crossbatch, report, or legacy checkpoint work.
 
 ## Directory Strategy
@@ -383,6 +434,9 @@ Useful existing files:
   - Phase 4 should start with a LangGraph-local validator for rescan-owned
     artifact families, then align with any legacy rescan gate if one is later
     factored into a reusable function.
+  - Phase 9 should reuse or wrap the existing verify-file parity, evidence tag,
+    explicit `UNVERIFIED` fallback, and mechanical `verify_core.md` aggregate
+    helpers instead of letting verifier LLM output define aggregate truth.
 
 - `scripts/plamen_parsers.py`
   - Source of `parse_breadth_manifest_outputs()` and
@@ -392,6 +446,10 @@ Useful existing files:
   - Phase 4 should reuse Phase 3's parsed breadth outputs as the first-pass
     exclusion set; do not re-parse arbitrary `analysis_*.md` files as
     successful breadth outputs.
+  - Phase 9 should reuse `parse_verification_queue_rows()` and the SC shard
+    manifest semantics from `compute_sc_verify_shards()` /
+    `ensure_sc_verify_shard_manifests()` so the active queue is the only
+    verification scope.
 
 - `prompts/shared/v2/phase4-rescan.md`
   - Target location for the rescan methodology body.
@@ -691,6 +749,7 @@ target_phase = "instantiate": START -> recon -> instantiate -> END
 target_phase = "breadth":     START -> recon -> instantiate -> breadth -> END
 target_phase = "rescan":      START -> recon -> instantiate -> breadth -> rescan -> END
 target_phase = "inventory":   START -> recon -> instantiate -> breadth -> rescan -> inventory -> END
+target_phase = "verify":      START -> ... -> sc_verify_queue -> verify -> END
 ```
 
 Single-node mode keeps routing deterministic but starts at exactly the requested
@@ -702,6 +761,7 @@ single_node phase = "instantiate": START -> instantiate -> END
 single_node phase = "breadth":     START -> breadth -> END
 single_node phase = "rescan":      START -> rescan -> END
 single_node phase = "inventory":   START -> inventory -> END
+single_node phase = "verify":      START -> verify -> END
 ```
 
 Do not add dynamic branching for later phases in Phase 2, Phase 3, Phase 4,
@@ -721,6 +781,8 @@ or Phase 5. The only conditional behavior should be:
 - single-node `inventory` is allowed only when the base run has successful
   `recon`, `instantiate`, `breadth`, and `rescan` state plus valid discovery
   outputs.
+- single-node `verify` is allowed only when the base run has successful
+  `sc_verify_queue` state plus valid active queue and shard manifests.
 
 ## LangGraph Graph
 
@@ -785,6 +847,7 @@ run_instantiate_graph(config, runner=None)
 run_breadth_graph(config, runner=None)
 run_rescan_graph(config, runner=None)
 run_inventory_graph(config, runner=None)
+run_verify_graph(config, runner=None)
 run_phase_node(config, phase_name, base_run_id, runner=None)
 ```
 
@@ -799,6 +862,7 @@ Add `run_instantiate_graph()` and `run_breadth_graph()` as thin wrappers so
 tests and examples do not need to duplicate target strings.
 Add `run_rescan_graph()` as the same style of thin wrapper for Phase 4.
 Add `run_inventory_graph()` as the same style of thin wrapper for Phase 5.
+Add `run_verify_graph()` as the same style of thin wrapper for Phase 9.
 Add `run_phase_node()` for explicit single-node execution. It should create a
 new LangGraph run row linked to `base_run_id`, seed `completed_phases` from the
 validated predecessor set, and invoke only the requested phase node.
@@ -1836,6 +1900,18 @@ Phase 5 smoke command:
 python -m plamen_langgraph.cli inventory /path/to/small/project --mode core
 ```
 
+Phase 8 smoke command:
+
+```bash
+python -m plamen_langgraph.cli sc_verify_queue /path/to/small/project --mode core
+```
+
+Phase 9 smoke command:
+
+```bash
+python -m plamen_langgraph.cli verify /path/to/small/project --mode core
+```
+
 Single-node smoke command after a successful prefix run:
 
 ```bash
@@ -1852,6 +1928,10 @@ python -m plamen_langgraph.cli inventory /path/to/small/project \
   --mode core \
   --single-node \
   --base-run-id <rescan-run-id>
+python -m plamen_langgraph.cli verify /path/to/small/project \
+  --mode core \
+  --single-node \
+  --base-run-id <sc_verify_queue-run-id>
 ```
 
 Then verify:
@@ -1891,6 +1971,11 @@ Expected result:
   row.
 - Phase 5 only: `artifacts` contains one `inventory` row for
   `findings_inventory.md`.
+- Phase 8 only: `verification_queue.md`, `verification_queue.json`, and
+  active shard manifests exist under `.lg_scratchpad`.
+- Phase 9 only: every active queue row has a schema-valid `verify_<ID>.md`,
+  `verify_core.md` is mechanically rebuilt, and `verification_results.json`
+  row count equals the active queue row count.
 - Single-node only: the new `runs` row has `execution_mode = single_node`,
   `base_run_id` set to the referenced prefix run, and only the target
   `phase_runs` row under the new run id.
@@ -2738,8 +2823,192 @@ Deferred after Phase 8:
 
 - `sc_semantic_dedup`
 - `chain` and `chain_agent2`
-- verifier shard execution
-- verification aggregation
+- skeptic-judge and crossbatch checks
+- report index and report assembly
+
+Moved into Phase 9:
+
+- verifier shard execution for active queue rows
+- mechanical verification aggregation
+
+## Phase 9 Implementation Plan
+
+Phase 9 should implement the LangGraph-owned SC verification execution phase
+directly after `sc_verify_queue`:
+
+```text
+Light:
+recon -> instantiate -> breadth -> rescan -> inventory -> depth -> sc_verify_queue -> verify
+
+Core/Thorough:
+recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth -> sc_verify_queue -> verify
+```
+
+Phase 9 completes verification for every active candidate issue from Phase 8.
+The active candidate set is exactly the parseable rows in
+`verification_queue.md` / `verification_queue.json`. Rows moved by Phase 8 to
+`verification_queue_evidence_excluded.*` are not Phase 9 verification
+requirements, but their exclusion artifacts must remain intact.
+
+Phase 9 must not regenerate or reinterpret the queue. It consumes the queue and
+shard manifests written by Phase 8, runs verifier work, writes one
+`verify_<ID>.md` per active queue row, mechanically rebuilds `verify_core.md`,
+and stops before skeptic-judge, crossbatch, report index, report writing,
+scoring, or legacy checkpoint work.
+
+Phase 9 execution model:
+
+- Implement one LangGraph target phase named `verify`.
+- Do not add static LangGraph nodes for `sc_verify_crithigh`,
+  `sc_verify_high_*`, `sc_verify_medium_*`, or `sc_verify_low_*`.
+- Inside the `verify` phase node, load the Phase 8 SC shard manifests and run
+  only non-empty shards.
+- Each shard is a bounded Codex subprocess that reads its shard manifest and
+  processes assigned rows sequentially.
+- Each assigned row must produce its exact `Expected Output File` when present,
+  otherwise `verify_<Finding ID>.md`.
+- A shard may skip a row only when the exact verifier file already exists and
+  contains `Severity:`, `Evidence Tag:`, and `Verdict:`.
+- Concurrency is optional for a later isolation pass. Initial Phase 9 should
+  execute non-empty shards sequentially in deterministic shard-name order
+  unless worktree/container isolation is added first.
+
+Phase 9 artifact contract:
+
+- Required validated inputs:
+  - `verification_queue.md`
+  - `verification_queue.json`
+  - every active queue row's owning shard manifest and JSON sidecar
+  - each row's cited source location and primary artifact when available
+- Required phase outputs:
+  - one schema-valid `verify_<ID>.md` per active queue row
+  - `verify_core.md`, rebuilt mechanically from verifier files
+- Supporting LangGraph-owned outputs:
+  - `verification_results.json`, summarizing each active ID, verify file,
+    verdict, final severity, evidence tag, PoC attempt status, execution
+    result, and blocker
+  - `_lg_verify_prompt.md`, `_lg_verify_stdout.log`,
+    `_lg_verify_stderr.log`, `_lg_verify_events.jsonl`, and
+    `_lg_verify_last_message.md` for the overall Phase 9 run
+  - optional per-shard debug files using a stable `_lg_verify_<shard>_*`
+    naming convention
+
+Phase 9 verifier file schema:
+
+- Every `verify_<ID>.md` must include:
+  - `Severity:`
+  - `Evidence Tag:` with one of `[POC-PASS]`, `[POC-FAIL]`,
+    `[CODE-TRACE]`, or `[MEDUSA-PASS]`
+  - `Verdict:`
+  - `### PoC Attempt`
+  - `### Execution Result`
+- Critical/High `unit` or `property` rows must not be marked `CONFIRMED` on
+  `[CODE-TRACE]` alone.
+- If a row cannot be verified after recovery, write an explicit verifier file
+  with `Verdict: UNVERIFIED`, `Evidence Tag: [CODE-TRACE]`, preserved original
+  severity, and a concrete blocker.
+
+Phase 9 development checklist:
+
+1. Add `verify` to `SUPPORTED_TARGET_PHASES`.
+2. Add `get_phase("verify")` support with expected artifacts derived from the
+   active queue plus `verify_core.md`; keep the phase metadata distinct from
+   legacy static `sc_verify_*` phases.
+3. Add `verify` to the CLI with the same common options as `sc_verify_queue`.
+4. Add `run_verify_graph()` as a wrapper around
+   `run_graph(config, target_phase="verify")`.
+5. Extend prefix graph construction:
+   - Light:
+     `recon -> instantiate -> breadth -> rescan -> inventory -> depth -> sc_verify_queue -> verify`
+   - Core/Thorough:
+     `recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth -> sc_verify_queue -> verify`
+6. Preserve explicit single-node mode:
+   `--single-node --base-run-id <successful-sc_verify_queue-run-id>`.
+7. Single-node `verify` must validate that the base run belongs to the same
+   `project_root` and `scratchpad`, has a successful `sc_verify_queue` phase
+   row, and has valid queue/shard artifacts before invoking any verifier.
+8. Add `verify_prerequisite_issues()` in
+   `plamen_langgraph/plamen_lg/artifacts.py` to fail closed on missing,
+   malformed, stale, or coverage-incomplete queue/shard manifests.
+9. Add active-row helpers that return the exact expected verifier output names
+   from the active queue and shard sidecars.
+10. Add a Phase 9 prompt builder that reuses the SC Verify Shard Contract from
+    `prompts/shared/v2/phase5-verification-sc.md`, injects the assigned shard
+    manifest, and withholds aggregate, skeptic, crossbatch, and report
+    instructions.
+11. Run every non-empty shard in deterministic order. For each shard, write
+    per-shard prompt/debug files and call `CodexRunner`.
+12. After each shard, validate only that shard's assigned verifier files.
+13. After all shards, compute missing or malformed active IDs and run one
+    targeted recovery shard over only those rows.
+14. If recovery still leaves missing IDs, write explicit `UNVERIFIED` verifier
+    files for the remaining rows; do not mark them `CONFIRMED` or let them
+    disappear.
+15. Always rebuild `verify_core.md` mechanically from filesystem
+    `verify_*.md`; never trust an LLM-written aggregate.
+16. Write `verification_results.json` from queue rows and parsed verifier
+    files.
+17. Record artifact rows for every active verifier file, `verify_core.md`, and
+    `verification_results.json` with `phase_name = "verify"`.
+18. Mark Phase 9 failed if the active queue row count does not match the count
+    of schema-valid per-ID verifier files after recovery/fallback handling.
+19. Reject report, skeptic, crossbatch, scoring, semantic-dedup, and legacy
+    checkpoint files as Phase 9 completion evidence.
+20. Update `plamen_langgraph/README.md` to document the `verify` command,
+    active-only candidate scope, dynamic shard execution, recovery behavior,
+    `UNVERIFIED` fallback, `verify_core.md`, and `verification_results.json`.
+21. Add unit tests before manual smoke testing.
+22. Run existing Phase 1-8 LangGraph tests to prove behavior did not regress.
+
+Phase 9 interface notes:
+
+```bash
+python -m plamen_langgraph.cli verify /path/to/project --mode light
+python -m plamen_langgraph.cli verify /path/to/project --mode core
+python -m plamen_langgraph.cli verify /path/to/project \
+  --single-node --base-run-id <sc_verify_queue-run-id>
+```
+
+Prefix-mode Phase 9 does not need additional SQLite tables. It should reuse the
+existing `runs`, `phase_runs`, and `artifacts` tables. If per-shard telemetry
+is needed, store it as debug files and artifact records first; defer schema
+migrations until the telemetry shape has proven useful.
+
+Phase 9 acceptance criteria:
+
+1. `python -m plamen_langgraph.cli verify /path/to/project --mode light` runs
+   the Light prefix through `sc_verify_queue` and then executes verification.
+2. `python -m plamen_langgraph.cli verify /path/to/project --mode core` runs
+   the Core prefix through `invariants`, `depth`, `sc_verify_queue`, and
+   `verify`.
+3. Thorough mode uses the same predecessor ordering as Core with Thorough
+   queue semantics.
+4. Single-node mode runs only `verify` after validating a successful
+   `sc_verify_queue` predecessor and valid queue/shard artifacts.
+5. Missing or malformed `verification_queue.md`, `verification_queue.json`, or
+   active shard manifests fail before verifier execution.
+6. Empty active queue writes a valid empty `verify_core.md`, writes
+   `verification_results.json` with zero results, records Phase 9 artifacts,
+   and succeeds.
+7. Non-empty active queue requires one schema-valid `verify_<ID>.md` per active
+   row.
+8. Low/Info rows excluded by Phase 8 in Light/Core are not required by Phase 9.
+9. Evidence-invalid rows excluded by Phase 8 are not required by Phase 9.
+10. Missing verifier output triggers recovery for missing active IDs only.
+11. Recovery fallback files are explicit `UNVERIFIED` verifier files and are
+    not treated as confirmed findings.
+12. `verify_core.md` is rebuilt mechanically and includes every active verified
+    or unverified ID.
+13. `verification_results.json` row count equals the active queue row count.
+14. `verify_*.md`, `verify_core.md`, reports, and legacy checkpoint artifacts
+    still do not satisfy Phase 8 queue completion, but valid verifier files and
+    `verify_core.md` do satisfy Phase 9.
+15. Existing Phase 1-8 tests continue to pass.
+
+Deferred after Phase 9:
+
+- `sc_semantic_dedup`
+- `chain` and `chain_agent2`
 - skeptic-judge and crossbatch checks
 - report index and report assembly
 
