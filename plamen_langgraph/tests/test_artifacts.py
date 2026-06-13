@@ -707,8 +707,8 @@ def test_sc_semantic_dedup_validator_rejects_live_pair_passthrough(tmp_path):
     )
     (scratch / "dedup_decisions.md").write_text(
         "# Semantic Dedup Decisions\n\n"
-        "**Status**: PASSTHROUGH\n\n"
-        "**Reason**: pre-run passthrough safety net.\n",
+        "**Status**: BUDGET_GUARD_PASSTHROUGH\n\n"
+        "**Reason**: legacy budget guard preservation.\n",
         encoding="utf-8",
     )
 

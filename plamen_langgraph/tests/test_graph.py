@@ -259,6 +259,31 @@ def write_duplicate_inventory_artifact(scratch) -> None:
     )
 
 
+def large_duplicate_inventory_body(source_files: list[str]) -> str:
+    body = [inventory_body(source_files)]
+    for index in range(2, 10):
+        body.append(
+            f"\n### [BG-{index:03d}] Shared issue duplicate angle {index}\n\n"
+            f"Finding ID: [BG-{index:03d}]\n"
+            f"Title: Shared issue duplicate angle {index}\n"
+            "Severity: Medium\n"
+            "Verdict: CONFIRMED\n"
+            f"Location: src/A.sol:{10 + index}\n"
+            f"Source IDs: DT-{index}\n"
+            "Root Cause: Missing validation.\n"
+            "Preferred Tag: [CODE]\n\n"
+            + ("Duplicate evidence. " * INVENTORY_MIN_BYTES)
+        )
+    return "".join(body)
+
+
+def write_large_duplicate_inventory_artifact(scratch) -> None:
+    (scratch / "findings_inventory.md").write_text(
+        large_duplicate_inventory_body(inventory_source_files(scratch)),
+        encoding="utf-8",
+    )
+
+
 def invariants_body() -> str:
     return (
         "# Semantic Invariants\n\n"
@@ -1894,6 +1919,40 @@ def test_single_node_sc_semantic_dedup_uses_successful_depth_and_swaps(tmp_path)
     assert (scratch / "findings_inventory_pre_dedup.md").exists()
     assert (scratch / "finding_records.json").exists()
     assert "CS-2" in (scratch / "findings_inventory.md").read_text(encoding="utf-8")
+
+
+def test_single_node_sc_semantic_dedup_invokes_runner_for_bounded_large_candidates(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="light")
+    scratch = project / ".lg_scratchpad"
+    scratch.mkdir()
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    write_large_duplicate_inventory_artifact(scratch)
+    write_depth_artifacts(scratch, "light")
+    seed_base_run(
+        config,
+        "base-run",
+        ["recon", "instantiate", "breadth", "rescan", "inventory", "depth"],
+    )
+    runner = FakeRunner()
+
+    state = run_phase_node(config, "sc_semantic_dedup", runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert [call["phase"] for call in runner.calls] == ["sc_semantic_dedup"]
+    assert (scratch / "_lg_sc_semantic_dedup_prompt.md").exists()
+    assert "showing top 24" in (scratch / "dedup_candidate_pairs.md").read_text(
+        encoding="utf-8"
+    )
+    assert "candidate pair(s) identified" in (
+        scratch / "dedup_candidate_pairs_full.md"
+    ).read_text(encoding="utf-8")
+    assert (scratch / "findings_inventory_pre_dedup.md").exists()
+    assert (scratch / "finding_records.json").exists()
 
 
 def test_single_node_sc_semantic_dedup_requires_successful_depth(tmp_path):

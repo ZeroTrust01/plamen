@@ -115,7 +115,10 @@ prerequisites and writes a bounded LangGraph-owned candidate packet:
 `dedup_candidate_pairs.md` and, when useful, `dedup_focus_inventory.md`.
 If there are no candidate pairs and no `LIKELY-DUP` tags, the node writes a
 deterministic passthrough `dedup_decisions.md` and
-`findings_inventory_deduped.md` without invoking Codex. After a successful
+`findings_inventory_deduped.md` without invoking Codex. If live candidate pairs
+exist, LangGraph invokes Codex with the bounded packet even when the full
+candidate set is larger than one pass; overflow pairs remain traceability-only
+deferred work in `dedup_candidate_pairs_full.md`. After a successful
 semantic-dedup run, LangGraph validates `findings_inventory_deduped.md`, backs
 up the previous inventory to `findings_inventory_pre_dedup.md`, swaps the
 deduped file into `findings_inventory.md`, and writes a lightweight
@@ -236,7 +239,6 @@ and limitations or unresolved evidence gaps.
 The SC semantic dedup gate is SC-only and inventory-based. It requires
 `dedup_decisions.md` and `findings_inventory_deduped.md`; the deduped inventory
 must remain structurally valid. If live candidate pairs exist, an unchanged
-`PASSTHROUGH` decision is rejected unless the node explicitly selected the
-budget guard. LangGraph semantic dedup does not reuse legacy private mechanical
-helpers and does not run the canceled `attention_repair` or `rag_sweep`
-stages.
+`PASSTHROUGH` decision is rejected. LangGraph semantic dedup does not reuse
+legacy private mechanical helpers and does not run the canceled
+`attention_repair` or `rag_sweep` stages.

@@ -9,7 +9,6 @@ from pathlib import Path
 
 FINDING_ID_RE = r"[A-Z][A-Z0-9_-]*-\d+"
 LIVE_PAIR_LIMIT = 24
-INVENTORY_BUDGET_GUARD_COUNT = 180
 
 
 @dataclass(frozen=True)
@@ -307,14 +306,6 @@ def prepare_sc_semantic_dedup(scratchpad: str | Path) -> tuple[bool, str | None]
         reason = "no candidate pairs and no LIKELY-DUP tags"
         write_passthrough_outputs(root, reason)
         return True, reason
-    if len(pairs) > LIVE_PAIR_LIMIT or len(findings) > INVENTORY_BUDGET_GUARD_COUNT:
-        reason = (
-            "semantic dedup budget guard: "
-            f"{len(pairs)} candidate pair(s), {len(findings)} inventory finding(s)"
-        )
-        write_passthrough_outputs(root, reason, status="BUDGET_GUARD_PASSTHROUGH")
-        return True, reason
-
     write_passthrough_outputs(
         root,
         "pre-run passthrough safety net; bounded semantic dedup may overwrite "

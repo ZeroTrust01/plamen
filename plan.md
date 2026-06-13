@@ -2556,7 +2556,7 @@ LangGraph cancels `attention_repair` and `rag_sweep`. They are not Phase 8
 predecessors, not deferred LangGraph work, and not accepted completion evidence.
 
 Phase 8 should not reuse legacy private mechanical helpers. Candidate
-generation, passthrough handling, budget guards, swap behavior, and lightweight
+generation, passthrough handling, overflow deferral, swap behavior, and lightweight
 finding-record refresh should live in LangGraph-owned code.
 
 Phase 8 artifact contract:
@@ -2593,8 +2593,8 @@ Phase 8 development checklist:
    `findings_inventory.md`, generates bounded candidate pairs, writes a focus
    packet for live IDs, and writes deterministic passthrough outputs when no
    dedup signals exist.
-6. Add a budget guard that preserves the active inventory unchanged when the
-   candidate set is too large for one bounded semantic-dedup pass.
+6. Preserve bounded execution by sending only the top live candidate packet to
+   semantic review while recording overflow candidates as deferred traceability.
 7. Add successful-run finalization that validates `findings_inventory_deduped.md`
    before backing up and swapping the active inventory.
 8. In Light mode, compile the graph as
@@ -2653,8 +2653,8 @@ Phase 8 acceptance criteria:
    invoke Codex.
 8. Live candidate pairs write `dedup_candidate_pairs.md` and
    `dedup_focus_inventory.md` before invoking Codex.
-9. If live candidate pairs exist, passthrough-only decisions fail unless the
-   budget guard explicitly selected preservation.
+9. If live candidate pairs exist, passthrough-only decisions fail; overflow
+   pairs are deferred, not treated as a reason to skip semantic review.
 10. Successful semantic dedup swaps `findings_inventory_deduped.md` into
     `findings_inventory.md` only after validation.
 11. `findings_inventory_pre_dedup.md` and LangGraph-owned

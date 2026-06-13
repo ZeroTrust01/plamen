@@ -1146,7 +1146,7 @@ def _dedup_decisions_structure_issues(scratchpad: str | Path) -> list[str]:
         issues.append("dedup_decisions.md contains placeholder marker")
 
     live_pairs = _semantic_dedup_live_pair_count(root)
-    if live_pairs > 0 and "passthrough" in normalized and "budget guard" not in normalized:
+    if live_pairs > 0 and "passthrough" in normalized:
         issues.append(
             "semantic dedup left PASSTHROUGH decisions despite live candidate pairs"
         )
