@@ -1,4 +1,4 @@
-# Plamen LangGraph Phase 1-7 Refactor Plan
+# Plamen LangGraph Phase 1-8 Refactor Plan
 
 ## Objective
 
@@ -16,6 +16,8 @@ Phase 6 extends the same prefix to the semantic invariant pre-computation
 phase: `invariants`.
 Phase 7 extends the LangGraph path to the first adaptive depth boundary:
 `depth`.
+Phase 8 extends the same prefix to the smart-contract verification queue
+boundary: `sc_verify_queue`.
 
 The Phase 1 goal is to prove the new architecture can:
 
@@ -102,6 +104,25 @@ The Phase 7 goal is to prove that the architecture can:
 - fail the depth phase when required depth outputs are missing, stub, or
   structurally incomplete
 - record depth artifacts and phase status in SQLite
+- still avoid legacy driver/checkpoint mutation
+
+The Phase 8 goal is to prove that the architecture can:
+
+- execute a mode-aware verification queue graph:
+  - Light:
+    `recon -> instantiate -> breadth -> rescan -> inventory -> depth -> sc_verify_queue`
+  - Core/Thorough:
+    `recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth -> sc_verify_queue`
+- run deterministic, LangGraph-owned queue generation without invoking
+  verifier shards
+- consume `findings_inventory.md`, mode-required depth artifacts, and optional
+  hypothesis/chain artifacts when already present
+- write and validate `verification_queue.md`, JSON sidecars, and shard
+  manifests
+- fail the queue phase when active rows are unparseable, inventory parity is
+  broken, blank IDs would create `verify_.md`, or shard manifests do not cover
+  active rows
+- record queue artifacts and phase status in SQLite
 - still avoid legacy driver/checkpoint mutation
 
 ## High-Level Architecture
@@ -237,6 +258,28 @@ new CLI entry
       -> end
 ```
 
+Phase 8 target shape:
+
+```text
+new CLI entry
+  -> LangGraph graph
+      -> recon phase node
+      -> instantiate phase node
+      -> breadth phase node
+      -> rescan phase node
+      -> inventory phase node
+      -> optional invariants phase node (Core/Thorough only)
+      -> depth phase node
+      -> sc_verify_queue phase node
+          -> inventory/depth prerequisite gate
+          -> deterministic queue generator
+          -> evidence and mode filters
+          -> shard manifest writer
+          -> verification queue parity gate
+          -> SQLite state store
+      -> end
+```
+
 Long-term target architecture:
 
 ```text
@@ -273,6 +316,10 @@ direct phase node and write the mode-required depth outputs under
 `.lg_scratchpad`. LangGraph-level fan-out, per-agent worktrees, container
 isolation, Thorough iteration 2-3, fuzz/Medusa orchestration, RAG, chain,
 verification, and report phases remain follow-on work.
+Phase 8 ports only the SC verification queue boundary. It should run as a
+mechanical LangGraph node, write `verification_queue.md` plus supporting queue
+JSON/shard manifests, and stop before running any verifier shard, aggregate,
+skeptic, crossbatch, report, or legacy checkpoint work.
 
 ## Directory Strategy
 
@@ -2541,23 +2588,25 @@ Deferred after Phase 7:
 
 ## Phase 8 Implementation Plan
 
-Phase 8 should implement a LangGraph-owned SC semantic dedup phase directly
+Phase 8 should implement a LangGraph-owned SC verification queue phase directly
 after `depth`:
 
 ```text
 Light:
-recon -> instantiate -> breadth -> rescan -> inventory -> depth -> sc_semantic_dedup
+recon -> instantiate -> breadth -> rescan -> inventory -> depth -> sc_verify_queue
 
 Core/Thorough:
-recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth -> sc_semantic_dedup
+recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth -> sc_verify_queue
 ```
 
-LangGraph cancels `attention_repair` and `rag_sweep`. They are not Phase 8
-predecessors, not deferred LangGraph work, and not accepted completion evidence.
+Phase 8 stops after queue generation and queue validation. It must not run
+verifier shards, aggregate verification, skeptic-judge, crossbatch, report
+index, report writing, or legacy checkpoint work.
 
-Phase 8 should not reuse legacy private mechanical helpers. Candidate
-generation, passthrough handling, overflow deferral, swap behavior, and lightweight
-finding-record refresh should live in LangGraph-owned code.
+Phase 8 may mirror legacy `sc_verify_queue` behavior, but the LangGraph path
+should own the queue-generation wrapper and validation contract. Reuse stable
+parsers/writers where practical, and keep all side effects scoped to queue
+artifacts under `.lg_scratchpad`.
 
 Phase 8 artifact contract:
 
@@ -2566,102 +2615,133 @@ Phase 8 artifact contract:
   - all mode-required depth artifacts
   - Core/Thorough semantic invariant prerequisites through the existing depth
     prerequisite chain
-- LangGraph-generated candidate/context packets:
-  - `dedup_candidate_pairs.md`
-  - `dedup_focus_inventory.md` when live candidate pairs exist
-  - `dedup_candidate_pairs_full.md` only when the bounded live packet omits
-    extra traceability candidates
+  - `hypotheses.md` and `chain_hypotheses.md` when already present
 - Required phase outputs:
-  - `dedup_decisions.md`
-  - `findings_inventory_deduped.md`
-- Post-success side effects:
-  - backup active inventory to `findings_inventory_pre_dedup.md`
-  - swap `findings_inventory_deduped.md` into `findings_inventory.md`
-  - write LangGraph-owned `finding_records.json`
+  - `verification_queue.md`
+- Supporting LangGraph-owned outputs:
+  - `verification_queue.json`
+  - `verification_queue_evidence_excluded.md` when evidence or mode filters
+    remove rows
+  - `verification_queue_evidence_excluded.json` when the excluded manifest is
+    written
+  - `verification_queue_crithigh.md` and `.json` when Critical/High rows exist
+  - `verification_queue_high_*.md` and `.json` when High overflow rows exist
+  - `verification_queue_medium_*.md` and `.json` when Medium rows exist
+  - `verification_queue_low_*.md` and `.json` only in Thorough mode when Low
+    rows remain active
 
 Phase 8 development checklist:
 
-1. Add `sc_semantic_dedup` to `SUPPORTED_TARGET_PHASES`.
-2. Add `get_phase("sc_semantic_dedup")` support with expected artifacts
-   `dedup_decisions.md` and `findings_inventory_deduped.md`.
-3. Add a LangGraph-owned prompt body under `plamen_langgraph/prompts/` scoped
-   to SC inventory dedup only.
-4. Add `build_sc_semantic_dedup_prompt(config)` that wraps project root,
-   scratchpad, pipeline, mode, language, required inputs, required outputs,
-   canceled-stage rules, and candidate-packet boundaries.
-5. Add LangGraph-owned dedup preparation code that parses
-   `findings_inventory.md`, generates bounded candidate pairs, writes a focus
-   packet for live IDs, and writes deterministic passthrough outputs when no
-   dedup signals exist.
-6. Preserve bounded execution by sending only the top live candidate packet to
-   semantic review while recording overflow candidates as deferred traceability.
-7. Add successful-run finalization that validates `findings_inventory_deduped.md`
-   before backing up and swapping the active inventory.
-8. In Light mode, compile the graph as
-   `recon -> instantiate -> breadth -> rescan -> inventory -> depth -> sc_semantic_dedup`.
-9. In Core and Thorough, compile the graph as
-   `recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth -> sc_semantic_dedup`.
-10. Add `run_sc_semantic_dedup_graph()` as a wrapper around
-    `run_graph(config, target_phase="sc_semantic_dedup")`.
-11. In CLI single-node mode, infer the latest successful `depth` run for the
-    same project and scratchpad.
-12. Add `expected_sc_semantic_dedup_artifacts()`,
-    `sc_semantic_dedup_prerequisite_issues()`, and forbidden-artifact checks in
+1. Add `sc_verify_queue` to `SUPPORTED_TARGET_PHASES`.
+2. Add `get_phase("sc_verify_queue")` support with expected artifact
+   `verification_queue.md`, base timeout matching the canonical SC phase, and
+   mechanical execution semantics.
+3. Add a LangGraph-owned `run_sc_verify_queue_generation(config)` helper that
+   performs the queue work without invoking Codex.
+4. Before generation, re-run inventory and depth prerequisite gates:
+   - `findings_inventory.md` is valid and substantial
+   - mode-required depth artifacts exist and pass structure checks
+   - Core/Thorough semantic invariant prerequisites are satisfied through the
+     existing depth prerequisite chain
+5. Promote depth findings into inventory before queue generation when depth
+   outputs contain reportable findings not yet represented in
+   `findings_inventory.md`.
+6. Write or refresh LangGraph-owned finding records from the active inventory.
+7. Route inventory findings into `verification_queue.md` deterministically,
+   preserving finding ID, severity, title, bug class, preferred evidence tag,
+   location, primary artifact, PoC class, and expected `verify_<ID>.md` output.
+8. Deduplicate queue rows by hypothesis when `finding_mapping.md` or
+   hypothesis metadata is available; otherwise preserve inventory-row routing.
+9. In Light and Core modes, move Low/Info rows to
+   `verification_queue_evidence_excluded.md` instead of keeping them active.
+   Thorough mode may keep Low rows active.
+10. Run evidence filtering after mode filtering so rows with invalid location
+    and invalid source provenance are excluded from the active queue.
+11. Write queue JSON sidecars as the machine contract for the active and
+    excluded manifests.
+12. Write SC shard manifests from the active queue:
+    `verification_queue_crithigh.*`, High overflow shards, Medium shards, and
+    Thorough-only Low shards as needed.
+13. In Light mode, compile the graph as
+    `recon -> instantiate -> breadth -> rescan -> inventory -> depth -> sc_verify_queue`.
+14. In Core and Thorough, compile the graph as
+    `recon -> instantiate -> breadth -> rescan -> inventory -> invariants -> depth -> sc_verify_queue`.
+15. Add `run_sc_verify_queue_graph()` as a wrapper around
+    `run_graph(config, target_phase="sc_verify_queue")`.
+16. Add `sc_verify_queue` to the CLI with the same common options as `depth`.
+17. Preserve explicit single-node mode:
+    `--single-node --base-run-id <successful-depth-run-id>`.
+18. Add `expected_sc_verify_queue_artifacts()`,
+    `sc_verify_queue_prerequisite_issues()`,
+    `forbidden_sc_verify_queue_artifacts()`, and shard-manifest validation in
     `plamen_langgraph/plamen_lg/artifacts.py`.
-13. Extend `validate_phase_artifacts("sc_semantic_dedup", scratchpad, records)`
-    so `dedup_decisions.md` is substantial, the deduped inventory remains valid,
-    and unchanged passthrough is rejected when live candidate pairs exist.
-14. Reject `attention_repair_summary.md`, `rag_validation.md`, chain,
-    verification, report, and legacy checkpoint artifacts as Phase 8 completion
-    evidence.
-15. Update `plamen_langgraph/README.md` to document the command, graph order,
-    single-node recovery, generated candidate packets, swap behavior, and
-    `_lg_sc_semantic_dedup_*` debug files.
-16. Add unit tests before manual smoke testing.
-17. Run existing LangGraph tests to prove behavior did not regress.
+19. Extend `validate_phase_artifacts("sc_verify_queue", scratchpad, records)`
+    so queue parsing is fail-closed, blank finding IDs are rejected, inventory
+    parity accounts for excluded rows and aliases, and shard manifests cover
+    all active queue rows.
+20. Reject `verify_*.md`, `verify_core.md`, `report_*.md`, `AUDIT_REPORT.md`,
+    `dedup_decisions.md`, `findings_inventory_deduped.md`, and legacy
+    checkpoint files as Phase 8 completion evidence.
+21. Update `plamen_langgraph/README.md` to document the command, graph order,
+    single-node recovery, generated queue/shard manifests, mode filtering, and
+    `_lg_sc_verify_queue_*` debug files.
+22. Add unit tests before manual smoke testing.
+23. Run existing LangGraph tests to prove behavior did not regress.
 
 Phase 8 interface notes:
 
 ```bash
-python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project --mode light
-python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project --mode core
-python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project \
+python -m plamen_langgraph.cli sc_verify_queue /path/to/project --mode light
+python -m plamen_langgraph.cli sc_verify_queue /path/to/project --mode core
+python -m plamen_langgraph.cli sc_verify_queue /path/to/project \
   --single-node --base-run-id <depth-run-id>
 ```
-
-When `--base-run-id` is omitted, single-node mode should infer the latest
-successful `depth` run for the same project and scratchpad.
 
 Prefix-mode Phase 8 does not need additional SQLite tables. It should reuse the
 existing `runs`, `phase_runs`, and `artifacts` tables.
 
 Phase 8 acceptance criteria:
 
-1. `python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project --mode
-   light` runs the Light prefix through `depth` and then semantic dedup.
-2. `python -m plamen_langgraph.cli sc_semantic_dedup /path/to/project --mode
-   core` runs the Core prefix through `invariants`, `depth`, and semantic dedup.
+1. `python -m plamen_langgraph.cli sc_verify_queue /path/to/project --mode
+   light` runs the Light prefix through `depth` and then writes the SC
+   verification queue.
+2. `python -m plamen_langgraph.cli sc_verify_queue /path/to/project --mode
+   core` runs the Core prefix through `invariants`, `depth`, and queue
+   generation.
 3. Thorough mode uses the same predecessor ordering as Core with Thorough depth
-   artifact requirements.
-4. `attention_repair` and `rag_sweep` are never inserted into the LangGraph
-   prefix.
-5. Single-node mode runs only `sc_semantic_dedup` after validating a successful
-   `depth` predecessor and mode-required artifacts.
-6. Missing, stub, or structurally incomplete depth artifacts fail before
-   semantic dedup invokes Codex.
-7. No-candidate inventories write deterministic passthrough outputs and do not
-   invoke Codex.
-8. Live candidate pairs write `dedup_candidate_pairs.md` and
-   `dedup_focus_inventory.md` before invoking Codex.
-9. If live candidate pairs exist, passthrough-only decisions fail; overflow
-   pairs are deferred, not treated as a reason to skip semantic review.
-10. Successful semantic dedup swaps `findings_inventory_deduped.md` into
-    `findings_inventory.md` only after validation.
-11. `findings_inventory_pre_dedup.md` and LangGraph-owned
-    `finding_records.json` are written after a successful swap.
-12. Chain, verification, report, canceled-stage, and legacy checkpoint artifacts
-    do not satisfy the semantic dedup gate.
-13. Unit tests pass with mocked runners.
+   artifact requirements and permits Low rows in active Low shards.
+4. Single-node mode runs only `sc_verify_queue` after validating a successful
+   `depth` predecessor and mode-required depth artifacts.
+5. Missing, stub, or structurally incomplete inventory or depth artifacts fail
+   before queue generation.
+6. Queue generation is mechanical and does not invoke Codex or spawn verifier
+   workers.
+7. `verification_queue.md` and `verification_queue.json` are written for every
+   successful Phase 8 run, including explicit empty-queue runs.
+8. A present non-empty `verification_queue.md` with no parseable active rows
+   fails unless it declares the canonical `Total: 0 findings` footer.
+9. Blank finding IDs are dropped or rejected; neither Markdown nor JSON output
+   contains `verify_.md`.
+10. Light/Core Low/Info filtering writes excluded manifests and keeps
+    inventory parity satisfied through active and excluded queues.
+11. Evidence-invalid rows are moved to the excluded manifest with a reason
+    instead of silently disappearing.
+12. Shard manifests and JSON sidecars cover every active queue row exactly once.
+13. Inventory-to-queue parity accepts alias mappings from `finding_mapping.md`.
+14. Existing regression tests for verification queue JSON sidecars and alias
+    parity pass.
+15. `verify_*.md`, `verify_core.md`, reports, semantic-dedup outputs, and
+    legacy checkpoint artifacts do not satisfy the queue gate.
+16. Unit tests pass with mocked runners.
+
+Deferred after Phase 8:
+
+- `sc_semantic_dedup`
+- `chain` and `chain_agent2`
+- verifier shard execution
+- verification aggregation
+- skeptic-judge and crossbatch checks
+- report index and report assembly
 
 ## Migration Strategy
 
