@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from contextlib import contextmanager
+import json
 import os
 import uuid
 from typing import Any, Callable
@@ -10,15 +11,19 @@ from .artifacts import (
     breadth_open_outputs,
     check_artifacts,
     check_depth_artifacts,
+    check_sc_verify_queue_artifacts,
     depth_prerequisite_issues,
     expected_breadth_artifacts,
     expected_depth_artifacts,
     expected_invariants_artifacts,
     expected_inventory_artifacts,
+    expected_sc_verify_queue_artifacts,
     first_pass_breadth_issues,
+    generate_sc_verify_queue,
     invariants_prerequisite_issues,
     inventory_source_size_issues,
     rescan_prerequisite_issues,
+    sc_verify_queue_prerequisite_issues,
     validate_phase_artifacts,
     validate_spawn_manifest_schema,
 )
@@ -44,6 +49,7 @@ SUPPORTED_TARGET_PHASES = {
     "inventory",
     "invariants",
     "depth",
+    "sc_verify_queue",
 }
 
 
@@ -97,6 +103,12 @@ def _predecessors_for(phase_name: str, mode: str = "core") -> list[str]:
         predecessors = ["recon", "instantiate", "breadth", "rescan", "inventory"]
         if mode in {"core", "thorough"}:
             predecessors.append("invariants")
+        return predecessors
+    if phase_name == "sc_verify_queue":
+        predecessors = ["recon", "instantiate", "breadth", "rescan", "inventory"]
+        if mode in {"core", "thorough"}:
+            predecessors.append("invariants")
+        predecessors.append("depth")
         return predecessors
     raise ValueError(f"unsupported target phase: {phase_name}")
 
@@ -358,6 +370,115 @@ def _make_phase_node(
                     next_state["failed_phase"] = phase_name
                     return next_state  # type: ignore[return-value]
 
+            if phase_name == "sc_verify_queue":
+                expected_artifacts = expected_sc_verify_queue_artifacts(scratchpad)
+                preflight_issues = sc_verify_queue_prerequisite_issues(
+                    scratchpad,
+                    str(state.get("mode", "core")),
+                )
+                if preflight_issues:
+                    artifacts = check_sc_verify_queue_artifacts(scratchpad)
+                    store.record_artifacts(
+                        state["run_id"],
+                        phase_name,
+                        artifacts["records"],
+                    )
+                    error = "; ".join(_dedupe_issues(preflight_issues))
+                    store.update_phase_run(
+                        phase_run_id,
+                        "failed",
+                        finished_at=utc_now(),
+                        error=error,
+                    )
+                    store.update_run_status(state["run_id"], "failed")
+                    next_state = dict(state)
+                    next_state["current_phase"] = phase_name
+                    next_state["status"] = "failed"
+                    next_state["error"] = error
+                    next_state["failed_phase"] = phase_name
+                    return next_state  # type: ignore[return-value]
+
+                metrics = generate_sc_verify_queue(
+                    scratchpad,
+                    state["project_root"],
+                    str(state.get("mode", "core")),
+                )
+                paths["stdout_path"].write_text(
+                    json.dumps(metrics, sort_keys=True) + "\n",
+                    encoding="utf-8",
+                )
+                paths["stderr_path"].write_text("", encoding="utf-8")
+                paths["events_path"].write_text(
+                    json.dumps(
+                        {
+                            "event": "sc_verify_queue.generated",
+                            "metrics": metrics,
+                        },
+                        sort_keys=True,
+                    )
+                    + "\n",
+                    encoding="utf-8",
+                )
+                paths["last_message_path"].write_text(
+                    "SC_VERIFY_QUEUE COMPLETE: "
+                    f"{metrics['active_rows']} active row(s), "
+                    f"{metrics['shard_manifests']} shard manifest(s), "
+                    f"shard rows={metrics['shard_rows']}\n",
+                    encoding="utf-8",
+                )
+
+                artifacts = check_sc_verify_queue_artifacts(scratchpad)
+                store.record_artifacts(state["run_id"], phase_name, artifacts["records"])
+                validation_issues = validate_phase_artifacts(
+                    phase_name,
+                    scratchpad,
+                    artifacts["records"],
+                    mode=str(state.get("mode", "core")),
+                )
+                artifact_issues = _dedupe_issues(
+                    [
+                        f"missing {phase_name} artifacts: {name}"
+                        for name in artifacts["missing"]
+                    ]
+                    + validation_issues
+                )
+                if not artifacts["ok"] or artifact_issues:
+                    phase_status = "failed"
+                    run_status = "failed"
+                    error = "; ".join(artifact_issues)
+                else:
+                    phase_status = "succeeded"
+                    run_status = "succeeded"
+                    error = None
+
+                store.update_phase_run(
+                    phase_run_id,
+                    phase_status,
+                    returncode=0,
+                    stdout_path=str(paths["stdout_path"]),
+                    stderr_path=str(paths["stderr_path"]),
+                    events_path=str(paths["events_path"]),
+                    output_path=str(paths["last_message_path"]),
+                    started_at=started_at,
+                    finished_at=utc_now(),
+                    error=error,
+                )
+                store.update_run_status(state["run_id"], run_status)
+
+                next_state = dict(state)
+                next_state["current_phase"] = phase_name
+                next_state["status"] = run_status
+                next_state["error"] = error
+                if phase_status == "succeeded":
+                    completed = list(next_state.get("completed_phases", []))
+                    if phase_name not in completed:
+                        completed.append(phase_name)
+                    next_state["completed_phases"] = completed
+                    next_state["failed_phase"] = None
+                else:
+                    next_state["failed_phase"] = phase_name
+                return next_state  # type: ignore[return-value]
+
             prompt = build_phase_prompt(
                 phase_name,
                 dict(state),
@@ -484,6 +605,7 @@ def build_graph(
         "inventory",
         "invariants",
         "depth",
+        "sc_verify_queue",
     }
     if target_phase in tail_phases:
         nodes.append(("instantiate", _make_phase_node("instantiate", runner, timeout_s)))
@@ -493,18 +615,26 @@ def build_graph(
         "inventory",
         "invariants",
         "depth",
+        "sc_verify_queue",
     }:
         nodes.append(("breadth", _make_phase_node("breadth", runner, timeout_s)))
-    if target_phase in {"rescan", "inventory", "invariants", "depth"}:
+    if target_phase in {"rescan", "inventory", "invariants", "depth", "sc_verify_queue"}:
         nodes.append(("rescan", _make_phase_node("rescan", runner, timeout_s)))
-    if target_phase in {"inventory", "invariants", "depth"}:
+    if target_phase in {"inventory", "invariants", "depth", "sc_verify_queue"}:
         nodes.append(("inventory", _make_phase_node("inventory", runner, timeout_s)))
     if target_phase == "invariants" or (
-        target_phase == "depth" and mode in {"core", "thorough"}
+        target_phase in {"depth", "sc_verify_queue"} and mode in {"core", "thorough"}
     ):
         nodes.append(("invariants", _make_phase_node("invariants", runner, timeout_s)))
-    if target_phase == "depth":
+    if target_phase in {"depth", "sc_verify_queue"}:
         nodes.append(("depth", _make_phase_node("depth", runner, timeout_s)))
+    if target_phase == "sc_verify_queue":
+        nodes.append(
+            (
+                "sc_verify_queue",
+                _make_phase_node("sc_verify_queue", runner, timeout_s),
+            )
+        )
     if StateGraph is None:
         return _SequentialGraph([node for _name, node in nodes])
 
@@ -609,6 +739,13 @@ def run_invariants_graph(config: AuditConfig, runner: Any | None = None) -> Audi
 
 def run_depth_graph(config: AuditConfig, runner: Any | None = None) -> AuditState:
     return run_graph(config, target_phase="depth", runner=runner)
+
+
+def run_sc_verify_queue_graph(
+    config: AuditConfig,
+    runner: Any | None = None,
+) -> AuditState:
+    return run_graph(config, target_phase="sc_verify_queue", runner=runner)
 
 
 def _same_resolved_path(left: str, right: str) -> bool:
@@ -762,7 +899,13 @@ def _validate_single_node_prerequisites(
             issues.append(f"base run chain lacks successful {predecessor} phase")
 
     depth_prerequisites_checked = False
+    sc_verify_queue_prerequisites_checked = False
     for predecessor in predecessors:
+        if phase_name == "sc_verify_queue":
+            if not sc_verify_queue_prerequisites_checked:
+                issues.extend(sc_verify_queue_prerequisite_issues(config.scratchpad, config.mode))
+                sc_verify_queue_prerequisites_checked = True
+            continue
         if phase_name == "depth" and predecessor in {"inventory", "invariants"}:
             if not depth_prerequisites_checked:
                 issues.extend(depth_prerequisite_issues(config.scratchpad, config.mode))

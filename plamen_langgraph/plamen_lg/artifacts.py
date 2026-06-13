@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -17,6 +18,25 @@ INVENTORY_MAX_SOURCE_BYTES = 512_000
 INVENTORY_SOURCE_TOO_LARGE = (
     "inventory source set too large; needs sharded inventory support"
 )
+
+_SC_VERIFY_SHARD_MANIFESTS_FALLBACK = {
+    "sc_verify_crithigh": "verification_queue_crithigh.md",
+    "sc_verify_high_b": "verification_queue_high_b.md",
+    "sc_verify_high_c": "verification_queue_high_c.md",
+    "sc_verify_high_d": "verification_queue_high_d.md",
+    "sc_verify_high_e": "verification_queue_high_e.md",
+    "sc_verify_high_f": "verification_queue_high_f.md",
+    "sc_verify_high_g": "verification_queue_high_g.md",
+    "sc_verify_high_h": "verification_queue_high_h.md",
+    "sc_verify_high_i": "verification_queue_high_i.md",
+    "sc_verify_high_j": "verification_queue_high_j.md",
+    "sc_verify_medium_a": "verification_queue_medium_a.md",
+    "sc_verify_medium_b": "verification_queue_medium_b.md",
+    "sc_verify_medium_c": "verification_queue_medium_c.md",
+    "sc_verify_medium_d": "verification_queue_medium_d.md",
+    "sc_verify_low_a": "verification_queue_low_a.md",
+    "sc_verify_low_b": "verification_queue_low_b.md",
+}
 
 _SC_DEPTH_GROUPS_FALLBACK = {
     "light": [
@@ -57,10 +77,14 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
-def _load_sc_depth_groups(mode: str) -> list[list[str]] | None:
+def _ensure_scripts_path() -> None:
     scripts_dir = _repo_root() / "scripts"
     if str(scripts_dir) not in sys.path:
         sys.path.insert(0, str(scripts_dir))
+
+
+def _load_sc_depth_groups(mode: str) -> list[list[str]] | None:
+    _ensure_scripts_path()
     try:
         from plamen_types import sc_never_cut_groups  # type: ignore
     except Exception:
@@ -70,6 +94,46 @@ def _load_sc_depth_groups(mode: str) -> list[list[str]] | None:
     except Exception:
         return None
     return [list(group) for group in groups]
+
+
+def _load_sc_verify_shard_manifests() -> dict[str, str]:
+    _ensure_scripts_path()
+    try:
+        from plamen_types import SC_VERIFY_SHARD_MANIFESTS  # type: ignore
+    except Exception:
+        return dict(_SC_VERIFY_SHARD_MANIFESTS_FALLBACK)
+    return dict(SC_VERIFY_SHARD_MANIFESTS)
+
+
+def _load_sc_verify_runtime() -> dict[str, Any]:
+    _ensure_scripts_path()
+    from plamen_parsers import (  # type: ignore
+        _dedup_queue_by_hypothesis,
+        _filter_sc_verification_queue_by_mode,
+        _write_mechanical_verification_queue_from_inventory,
+        ensure_sc_verify_shard_manifests,
+        parse_verification_queue_rows,
+    )
+    from plamen_validators import (  # type: ignore
+        _filter_verification_queue_by_evidence,
+        _promote_depth_findings_to_inventory,
+        _validate_verification_queue_inventory_parity,
+    )
+
+    return {
+        "dedup_queue_by_hypothesis": _dedup_queue_by_hypothesis,
+        "filter_sc_verification_queue_by_mode": _filter_sc_verification_queue_by_mode,
+        "filter_verification_queue_by_evidence": _filter_verification_queue_by_evidence,
+        "write_mechanical_verification_queue_from_inventory": (
+            _write_mechanical_verification_queue_from_inventory
+        ),
+        "ensure_sc_verify_shard_manifests": ensure_sc_verify_shard_manifests,
+        "parse_verification_queue_rows": parse_verification_queue_rows,
+        "promote_depth_findings_to_inventory": _promote_depth_findings_to_inventory,
+        "validate_verification_queue_inventory_parity": (
+            _validate_verification_queue_inventory_parity
+        ),
+    }
 
 
 def sha256_file(path: Path) -> str:
@@ -543,6 +607,28 @@ def expected_depth_artifacts(mode: str) -> list[str]:
     return flattened
 
 
+def expected_sc_verify_queue_artifacts(scratchpad: str | Path | None = None) -> list[str]:
+    del scratchpad
+    names = [
+        "verification_queue.md",
+        "verification_queue.json",
+        "verification_queue_evidence_excluded.md",
+        "verification_queue_evidence_excluded.json",
+    ]
+    for name in _load_sc_verify_shard_manifests().values():
+        names.append(name)
+        names.append(Path(name).with_suffix(".json").name)
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        unique.append(name)
+    return unique
+
+
 def check_depth_artifacts(scratchpad: str | Path, mode: str) -> dict[str, Any]:
     root = Path(scratchpad)
     records: list[dict[str, Any]] = []
@@ -584,6 +670,10 @@ def check_depth_artifacts(scratchpad: str | Path, mode: str) -> dict[str, Any]:
         "present": present,
         "records": records,
     }
+
+
+def check_sc_verify_queue_artifacts(scratchpad: str | Path) -> dict[str, Any]:
+    return check_artifacts(scratchpad, expected_sc_verify_queue_artifacts(scratchpad))
 
 
 def forbidden_inventory_artifacts(scratchpad: str | Path) -> list[str]:
@@ -1015,6 +1105,228 @@ def _depth_structure_issues(scratchpad: str | Path, mode: str) -> list[str]:
     return issues
 
 
+def sc_verify_queue_prerequisite_issues(
+    scratchpad: str | Path,
+    mode: str,
+) -> list[str]:
+    root = Path(scratchpad)
+    issues = depth_prerequisite_issues(root, mode)
+    issues.extend(_depth_structure_issues(root, mode))
+    return _dedupe_strings(issues)
+
+
+def _dedupe_strings(values: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def _read_queue_sidecar_rows(path: Path) -> tuple[list[dict[str, str]], list[str]]:
+    sidecar = path.with_suffix(".json")
+    if not sidecar.exists():
+        return [], [f"missing queue JSON sidecar: {sidecar.name}"]
+    try:
+        payload = json.loads(sidecar.read_text(encoding="utf-8", errors="replace"))
+    except Exception as exc:
+        return [], [f"unreadable queue JSON sidecar {sidecar.name}: {exc}"]
+    if payload.get("schema_version") != "plamen.verification_queue.v1":
+        return [], [f"invalid queue JSON schema: {sidecar.name}"]
+    rows_raw = payload.get("rows")
+    if not isinstance(rows_raw, list):
+        return [], [f"invalid queue JSON rows: {sidecar.name}"]
+
+    rows: list[dict[str, str]] = []
+    for item in rows_raw:
+        if not isinstance(item, dict):
+            continue
+        row = {str(k): str(v) for k, v in item.items()}
+        if row.get("finding id", "").strip():
+            rows.append(row)
+
+    declared = payload.get("row_count")
+    issues: list[str] = []
+    if isinstance(declared, int) and declared != len(rows):
+        issues.append(
+            f"queue JSON row_count mismatch in {sidecar.name}: "
+            f"declared={declared} parsed={len(rows)}"
+        )
+    return rows, issues
+
+
+def _queue_contains_blank_verify_filename(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return "verify_.md" in text
+
+
+def _queue_total_zero(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return bool(re.search(r"\bTotal:\s*0\s+findings\b", text, re.IGNORECASE))
+
+
+def _severity_bucket(value: str) -> str:
+    normalized = _strip_markdown(value).strip().lower()
+    if normalized.startswith("crit"):
+        return "critical"
+    if normalized.startswith("high"):
+        return "high"
+    if normalized.startswith("med"):
+        return "medium"
+    if normalized.startswith("low"):
+        return "low"
+    if normalized.startswith("info"):
+        return "info"
+    return normalized
+
+
+def _sc_verify_shard_coverage_issues(
+    scratchpad: str | Path,
+    active_rows: list[dict[str, str]],
+) -> list[str]:
+    root = Path(scratchpad)
+    active_ids = {
+        str(row.get("finding id", "") or "").strip().upper()
+        for row in active_rows
+        if str(row.get("finding id", "") or "").strip()
+    }
+    covered_ids: set[str] = set()
+    issues: list[str] = []
+
+    for name in _load_sc_verify_shard_manifests().values():
+        path = root / name
+        if not path.exists():
+            issues.append(f"missing SC verify shard manifest: {name}")
+            continue
+        rows, sidecar_issues = _read_queue_sidecar_rows(path)
+        issues.extend(sidecar_issues)
+        for row in rows:
+            fid = str(row.get("finding id", "") or "").strip().upper()
+            if fid:
+                covered_ids.add(fid)
+        if _queue_contains_blank_verify_filename(path):
+            issues.append(f"{name} contains forbidden blank verify filename: verify_.md")
+
+    missing = sorted(active_ids - covered_ids)
+    if missing:
+        sample = ", ".join(missing[:10])
+        more = f" (+{len(missing) - 10} more)" if len(missing) > 10 else ""
+        issues.append(
+            "SC verify shard manifests do not cover active queue row(s): "
+            f"{sample}{more}"
+        )
+
+    extra = sorted(covered_ids - active_ids)
+    if extra:
+        sample = ", ".join(extra[:10])
+        more = f" (+{len(extra) - 10} more)" if len(extra) > 10 else ""
+        issues.append(
+            "SC verify shard manifests contain non-active queue row(s): "
+            f"{sample}{more}"
+        )
+    return issues
+
+
+def generate_sc_verify_queue(
+    scratchpad: str | Path,
+    project_root: str | Path,
+    mode: str,
+) -> dict[str, Any]:
+    del project_root
+    root = Path(scratchpad)
+    runtime = _load_sc_verify_runtime()
+    normalized_mode = (mode or "core").lower()
+
+    promoted = runtime["promote_depth_findings_to_inventory"](root)
+    routed = runtime["write_mechanical_verification_queue_from_inventory"](root)
+    hypothesis_deduped = runtime["dedup_queue_by_hypothesis"](root)
+    mode_filtered = runtime["filter_sc_verification_queue_by_mode"](
+        root,
+        normalized_mode,
+    )
+    evidence_filtered = runtime["filter_verification_queue_by_evidence"](root)
+    shards = runtime["ensure_sc_verify_shard_manifests"](root)
+    active_rows = runtime["parse_verification_queue_rows"](root)
+
+    return {
+        "promoted_depth_findings": len(promoted or []),
+        "routed_inventory_findings": int(routed or 0),
+        "hypothesis_deduped_rows": int(hypothesis_deduped or 0),
+        "mode_filtered_rows": int(mode_filtered or 0),
+        "evidence_filtered_rows": len(evidence_filtered or []),
+        "active_rows": len(active_rows),
+        "shard_manifests": len(shards),
+        "shard_rows": sum(len(rows) for rows in shards.values()),
+    }
+
+
+def validate_sc_verify_queue_artifacts(
+    scratchpad: str | Path,
+    mode: str,
+) -> list[str]:
+    root = Path(scratchpad)
+    runtime = _load_sc_verify_runtime()
+    issues: list[str] = []
+
+    artifact_check = check_sc_verify_queue_artifacts(root)
+    for name in artifact_check["missing"]:
+        issues.append(f"missing sc_verify_queue artifact: {name}")
+
+    queue_path = root / "verification_queue.md"
+    if not queue_path.exists():
+        return _dedupe_strings(issues)
+
+    if _queue_contains_blank_verify_filename(queue_path):
+        issues.append("verification_queue.md contains forbidden blank verify filename: verify_.md")
+    queue_rows = runtime["parse_verification_queue_rows"](root)
+    if not queue_rows and not _queue_total_zero(queue_path):
+        issues.append(
+            "verification queue parse: verification_queue.md exists but no "
+            "parseable active rows were found"
+        )
+
+    _base_rows, base_sidecar_issues = _read_queue_sidecar_rows(queue_path)
+    issues.extend(base_sidecar_issues)
+    excluded_path = root / "verification_queue_evidence_excluded.md"
+    if excluded_path.exists():
+        _excluded_rows, excluded_sidecar_issues = _read_queue_sidecar_rows(excluded_path)
+        issues.extend(excluded_sidecar_issues)
+        if _queue_contains_blank_verify_filename(excluded_path):
+            issues.append(
+                "verification_queue_evidence_excluded.md contains forbidden "
+                "blank verify filename: verify_.md"
+            )
+
+    if (mode or "core").lower() != "thorough":
+        low_info = [
+            row.get("finding id", "")
+            for row in queue_rows
+            if _severity_bucket(row.get("severity", "")) in {"low", "info"}
+        ]
+        if low_info:
+            issues.append(
+                "SC verification queue contains Low/Info active row(s) "
+                f"in {(mode or 'core').lower()} mode: {', '.join(low_info[:8])}"
+            )
+
+    issues.extend(runtime["validate_verification_queue_inventory_parity"](root))
+    issues.extend(_sc_verify_shard_coverage_issues(root, queue_rows))
+    return _dedupe_strings(issues)
+
+
 def validate_phase_artifacts(
     phase_name: str,
     scratchpad: str | Path,
@@ -1097,5 +1409,10 @@ def validate_phase_artifacts(
                 "depth phase wrote forbidden downstream or legacy artifact(s): "
                 + ", ".join(forbidden[:12])
             )
+        return issues
+    if phase_name == "sc_verify_queue":
+        root = Path(scratchpad)
+        issues = sc_verify_queue_prerequisite_issues(root, mode)
+        issues.extend(validate_sc_verify_queue_artifacts(root, mode))
         return issues
     raise ValueError(f"unsupported LangGraph phase: {phase_name}")

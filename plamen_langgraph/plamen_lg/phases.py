@@ -184,6 +184,14 @@ def get_phase(name: str, pipeline: str = "sc") -> Any:
             base_timeout_s=7200,
             critical=True,
         )
+    if name == "sc_verify_queue":
+        return SimplePhase(
+            name="sc_verify_queue",
+            section_markers=["LangGraph SC verification queue"],
+            expected_artifacts=["verification_queue.md"],
+            base_timeout_s=600,
+            critical=True,
+        )
     phases = _load_sc_phases()
     if phases:
         for phase in phases:

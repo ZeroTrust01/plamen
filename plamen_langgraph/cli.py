@@ -103,6 +103,15 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     add_common_options(depth)
+    sc_verify_queue = sub.add_parser(
+        "sc_verify_queue",
+        help=(
+            "Run the supported verification queue graph prefix. Light mode runs "
+            "through depth, while Core/Thorough insert invariants before depth; "
+            "the command stops after deterministic queue and shard manifest generation."
+        ),
+    )
+    add_common_options(sc_verify_queue)
     return parser
 
 

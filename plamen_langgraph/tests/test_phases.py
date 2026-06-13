@@ -332,6 +332,15 @@ def test_depth_phase_metadata_is_langgraph_owned():
     assert phase.base_timeout_s == 7200
 
 
+def test_sc_verify_queue_phase_metadata_is_langgraph_owned():
+    phase = get_phase("sc_verify_queue", "sc")
+
+    assert phase.name == "sc_verify_queue"
+    assert phase.section_markers == ["LangGraph SC verification queue"]
+    assert expected_phase_artifacts("sc_verify_queue") == ["verification_queue.md"]
+    assert phase.base_timeout_s == 600
+
+
 def test_sc_semantic_dedup_phase_is_not_supported_by_langgraph():
     with pytest.raises(ValueError, match="unsupported LangGraph phase"):
         get_phase("sc_semantic_dedup", "sc")

@@ -231,6 +231,44 @@ def test_depth_cli_parses_same_options_as_invariants(tmp_path):
     assert args.timeout_s == 777
 
 
+def test_sc_verify_queue_cli_parses_same_options_as_depth(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    scratch = tmp_path / "scratch"
+    db = tmp_path / "state.sqlite"
+
+    args = _build_parser().parse_args(
+        [
+            "sc_verify_queue",
+            str(project),
+            "--mode",
+            "core",
+            "--pipeline",
+            "sc",
+            "--language",
+            "evm",
+            "--scratchpad",
+            str(scratch),
+            "--db",
+            str(db),
+            "--codex-bin",
+            "codex-test",
+            "--timeout-s",
+            "888",
+        ]
+    )
+
+    assert args.command == "sc_verify_queue"
+    assert args.project_root == str(project)
+    assert args.mode == "core"
+    assert args.pipeline == "sc"
+    assert args.language == "evm"
+    assert args.scratchpad == str(scratch)
+    assert args.db_path == str(db)
+    assert args.codex_bin == "codex-test"
+    assert args.timeout_s == 888
+
+
 def test_single_node_cli_options_preserve_target_phase(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
@@ -254,7 +292,7 @@ def test_single_node_cli_allows_omitted_base_run_id_for_tail_phases(tmp_path):
     project = tmp_path / "project"
     project.mkdir()
 
-    for command in ("rescan", "inventory", "invariants", "depth"):
+    for command in ("rescan", "inventory", "invariants", "depth", "sc_verify_queue"):
         args = _build_parser().parse_args(
             [
                 command,
@@ -321,5 +359,24 @@ def test_depth_single_node_cli_parses_base_run_id(tmp_path):
     )
 
     assert args.command == "depth"
+    assert args.single_node is True
+    assert args.base_run_id == "run-123"
+
+
+def test_sc_verify_queue_single_node_cli_parses_base_run_id(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+
+    args = _build_parser().parse_args(
+        [
+            "sc_verify_queue",
+            str(project),
+            "--single-node",
+            "--base-run-id",
+            "run-123",
+        ]
+    )
+
+    assert args.command == "sc_verify_queue"
     assert args.single_node is True
     assert args.base_run_id == "run-123"

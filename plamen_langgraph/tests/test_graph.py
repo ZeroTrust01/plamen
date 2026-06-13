@@ -25,6 +25,7 @@ from plamen_langgraph.plamen_lg.graph import (
     run_phase_node,
     run_recon_graph,
     run_rescan_graph,
+    run_sc_verify_queue_graph,
 )
 from plamen_langgraph.plamen_lg.phases import expected_recon_artifacts
 from plamen_langgraph.plamen_lg.store import StateStore
@@ -1764,3 +1765,187 @@ def test_single_node_depth_core_requires_successful_invariants_and_artifacts(tmp
         state["error"] or ""
     )
     assert runner.calls == []
+
+
+def test_mocked_sc_verify_queue_core_runs_prefix_without_verifier_runner(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    runner = FakeRunner(write_artifacts=True, write_instantiate_artifact=True)
+
+    state = run_sc_verify_queue_graph(config, runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["completed_phases"] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "invariants",
+        "depth",
+        "sc_verify_queue",
+    ]
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "invariants",
+        "depth",
+    ]
+    scratch = project / ".lg_scratchpad"
+    assert (scratch / "verification_queue.md").exists()
+    assert (scratch / "verification_queue.json").exists()
+    assert (scratch / "verification_queue_medium_a.md").exists()
+    assert (scratch / "verification_queue_medium_a.json").exists()
+    assert (scratch / "_lg_sc_verify_queue_last_message.md").exists()
+    assert not (scratch / "_v2_checkpoint.json").exists()
+    assert not (project / ".scratchpad").exists()
+
+    store = StateStore(config.db_path)
+    run = store.fetch_one(
+        "select phase, execution_mode, base_run_id, status from runs where id = ?",
+        (state["run_id"],),
+    )
+    phases = store.fetch_all(
+        "select phase_name, status, returncode from phase_runs where run_id = ? order by started_at",
+        (state["run_id"],),
+    )
+    queue_artifacts = store.fetch_all(
+        "select path, [exists] from artifacts where run_id = ? and phase_name = 'sc_verify_queue'",
+        (state["run_id"],),
+    )
+
+    assert run == {
+        "phase": "sc_verify_queue",
+        "execution_mode": "prefix",
+        "base_run_id": None,
+        "status": "succeeded",
+    }
+    assert phases[-1] == {
+        "phase_name": "sc_verify_queue",
+        "status": "succeeded",
+        "returncode": 0,
+    }
+    assert any(row["path"].endswith("verification_queue.md") for row in queue_artifacts)
+    assert all(row["exists"] == 1 for row in queue_artifacts)
+
+
+def test_sc_verify_queue_light_prefix_skips_invariants(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="light")
+    runner = FakeRunner(write_artifacts=True, write_instantiate_artifact=True)
+
+    state = run_sc_verify_queue_graph(config, runner=runner)
+
+    assert state["status"] == "succeeded"
+    assert state["completed_phases"] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "depth",
+        "sc_verify_queue",
+    ]
+    assert [call["phase"] for call in runner.calls] == [
+        "recon",
+        "instantiate",
+        "breadth",
+        "rescan",
+        "inventory",
+        "depth",
+    ]
+
+
+def test_single_node_sc_verify_queue_uses_successful_depth_base_run(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    write_inventory_artifact(scratch)
+    write_invariants_artifact(scratch)
+    write_depth_artifacts(scratch, "core")
+    seed_base_run(
+        config,
+        "base-run",
+        [
+            "recon",
+            "instantiate",
+            "breadth",
+            "rescan",
+            "inventory",
+            "invariants",
+            "depth",
+        ],
+    )
+    runner = FakeRunner(write_artifacts=False, write_instantiate_artifact=False)
+
+    state = run_phase_node(
+        config,
+        "sc_verify_queue",
+        base_run_id="base-run",
+        runner=runner,
+    )
+
+    assert state["status"] == "succeeded"
+    assert state["execution_mode"] == "single_node"
+    assert state["base_run_id"] == "base-run"
+    assert runner.calls == []
+    assert (scratch / "verification_queue.md").exists()
+    assert (scratch / "verification_queue_crithigh.md").exists()
+
+    store = StateStore(config.db_path)
+    phases = store.fetch_all(
+        "select phase_name from phase_runs where run_id = ?",
+        (state["run_id"],),
+    )
+    assert phases == [{"phase_name": "sc_verify_queue"}]
+
+
+def test_single_node_sc_verify_queue_requires_depth_outputs(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    config = build_config(project, mode="core")
+    scratch = project / ".lg_scratchpad"
+    write_recon_artifacts(scratch)
+    (scratch / "spawn_manifest.md").write_text(VALID_SPAWN_MANIFEST, encoding="utf-8")
+    write_breadth_artifacts(scratch)
+    write_rescan_artifacts(scratch)
+    write_inventory_artifact(scratch)
+    write_invariants_artifact(scratch)
+    seed_base_run(
+        config,
+        "base-run",
+        [
+            "recon",
+            "instantiate",
+            "breadth",
+            "rescan",
+            "inventory",
+            "invariants",
+            "depth",
+        ],
+    )
+    runner = FakeRunner()
+
+    state = run_phase_node(
+        config,
+        "sc_verify_queue",
+        base_run_id="base-run",
+        runner=runner,
+    )
+
+    assert state["status"] == "failed"
+    assert "missing depth artifact group: depth_token_flow_findings.md" in (
+        state["error"] or ""
+    )
+    assert runner.calls == []
+    assert not (scratch / "verification_queue.md").exists()

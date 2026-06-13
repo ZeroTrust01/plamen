@@ -16,11 +16,15 @@ from plamen_langgraph.plamen_lg.artifacts import (
     expected_depth_artifact_groups,
     expected_invariants_artifacts,
     expected_inventory_artifacts,
+    expected_sc_verify_queue_artifacts,
     first_pass_breadth_issues,
+    generate_sc_verify_queue,
     invariants_prerequisite_issues,
     inventory_source_files,
     inventory_source_size_issues,
+    sc_verify_queue_prerequisite_issues,
     validate_phase_artifacts,
+    validate_sc_verify_queue_artifacts,
     validate_spawn_manifest_schema,
 )
 
@@ -659,3 +663,122 @@ def test_depth_validator_rejects_missing_stub_incomplete_and_forbidden_outputs(t
     assert any("forbidden downstream or legacy" in issue for issue in issues)
     assert any("rag_validation.md" in issue for issue in issues)
     assert any("_v2_checkpoint.json" in issue for issue in issues)
+
+
+def _write_sc_verify_queue_prerequisites(scratch, mode: str = "core"):
+    _write_invariants_prerequisites(scratch)
+    if mode in {"core", "thorough"}:
+        (scratch / "semantic_invariants.md").write_text(
+            _valid_invariants_body(),
+            encoding="utf-8",
+        )
+    _write_depth_outputs(scratch, mode)
+
+
+def test_sc_verify_queue_generation_writes_sidecars_and_shards(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    scratch = project / ".lg_scratchpad"
+    _write_sc_verify_queue_prerequisites(scratch, "core")
+
+    metrics = generate_sc_verify_queue(scratch, project, "core")
+
+    assert metrics["active_rows"] == 1
+    assert metrics["shard_rows"] == 1
+    assert (scratch / "verification_queue.md").exists()
+    assert (scratch / "verification_queue.json").exists()
+    assert (scratch / "verification_queue_evidence_excluded.md").exists()
+    assert (scratch / "verification_queue_medium_a.md").exists()
+    assert (scratch / "verification_queue_medium_a.json").exists()
+    assert "verify_.md" not in (scratch / "verification_queue.md").read_text(
+        encoding="utf-8"
+    )
+    assert validate_sc_verify_queue_artifacts(scratch, "core") == []
+    assert validate_phase_artifacts("sc_verify_queue", scratch, [], mode="core") == []
+    assert "verification_queue.json" in expected_sc_verify_queue_artifacts(scratch)
+
+
+def test_sc_verify_queue_prerequisites_require_depth_contract(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_invariants_prerequisites(scratch)
+    (scratch / "semantic_invariants.md").write_text(
+        _valid_invariants_body(),
+        encoding="utf-8",
+    )
+
+    issues = sc_verify_queue_prerequisite_issues(scratch, "core")
+
+    assert any("missing depth artifact group: depth_token_flow_findings.md" in issue for issue in issues)
+
+
+def test_sc_verify_queue_core_filters_low_info_to_excluded(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    scratch = project / ".lg_scratchpad"
+    _write_sc_verify_queue_prerequisites(scratch, "core")
+    (scratch / "findings_inventory.md").write_text(
+        "# Findings Inventory\n\n"
+        "## Source Summary\n\n"
+        "| Source File | Pre-Dedup Findings | Post-Dedup Findings | Notes |\n"
+        "|-------------|--------------------|---------------------|-------|\n"
+        "| analysis_core_state.md | 1 | 1 | 1 |\n\n"
+        "## Master Table\n\n"
+        "| # | Finding ID | Title | Severity | Verdict | Location | Source IDs | Root Cause | Preferred Tag |\n"
+        "|---|------------|-------|----------|---------|----------|------------|------------|---------------|\n"
+        "| 1 | [INV-001] | Low issue | Low | CONFIRMED | src/A.sol:1 | B1 | Missing validation | [CODE] |\n\n"
+        "## Per-Finding Detail\n\n"
+        "### [INV-001] Low issue\n\n"
+        "Finding ID: [INV-001]\n"
+        "Title: Low issue\n"
+        "Severity: Low\n"
+        "Verdict: CONFIRMED\n"
+        "Location: src/A.sol:1\n"
+        "Source IDs: B1\n"
+        "Root Cause: Missing validation.\n"
+        "Preferred Tag: [CODE]\n\n"
+        + ("Detailed low evidence. " * INVENTORY_MIN_BYTES),
+        encoding="utf-8",
+    )
+
+    metrics = generate_sc_verify_queue(scratch, project, "core")
+
+    assert metrics["active_rows"] == 0
+    assert metrics["mode_filtered_rows"] == 1
+    assert "INV-001" in (scratch / "verification_queue_evidence_excluded.md").read_text(
+        encoding="utf-8"
+    )
+    assert validate_sc_verify_queue_artifacts(scratch, "core") == []
+
+
+def test_sc_verify_queue_validator_rejects_blank_verify_filename(tmp_path):
+    scratch = tmp_path / ".lg_scratchpad"
+    _write_sc_verify_queue_prerequisites(scratch, "core")
+    generate_sc_verify_queue(scratch, tmp_path, "core")
+    with (scratch / "verification_queue.md").open("a", encoding="utf-8") as f:
+        f.write("| 99 |  | verify_.md | High | Broken | logic | CODE | src/A.sol:1 | B1 | unit |\n")
+
+    issues = validate_sc_verify_queue_artifacts(scratch, "core")
+
+    assert any("verify_.md" in issue for issue in issues)
+
+
+def test_sc_verify_queue_validator_rejects_shard_coverage_gap(tmp_path):
+    project = tmp_path / "project"
+    project.mkdir()
+    scratch = project / ".lg_scratchpad"
+    _write_sc_verify_queue_prerequisites(scratch, "core")
+    generate_sc_verify_queue(scratch, project, "core")
+    (scratch / "verification_queue_medium_a.json").write_text(
+        '{\n'
+        '  "schema_version": "plamen.verification_queue.v1",\n'
+        '  "kind": "active",\n'
+        '  "source_markdown": "verification_queue_medium_a.md",\n'
+        '  "row_count": 0,\n'
+        '  "rows": []\n'
+        '}\n',
+        encoding="utf-8",
+    )
+
+    issues = validate_sc_verify_queue_artifacts(scratch, "core")
+
+    assert any("do not cover active queue row" in issue for issue in issues)
